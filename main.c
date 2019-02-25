@@ -389,9 +389,13 @@ void rtosInit()
     NVIC_ST_CTRL_R     = 7;                      // set for source as clock interrupt enable and enable the timer.
 }
 
+
+
 // REQUIRED: Implement prioritization to 8 levels
 int rtosScheduler()
 {
+    uint32_t skip_count = 0;
+
     bool ok;
     static uint8_t task = 0xFF;
     ok = false;
@@ -400,7 +404,20 @@ int rtosScheduler()
         task++;
         if (task >= MAX_TASKS)
             task = 0;
+
         ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
+        if(skip_count < tcb[task].priority + 8)
+        {
+            skip_count++;
+            ok = 0;
+
+            if(skip_count == tcb[task].priority +8)
+            {
+                ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
+                skip_count = 0;
+            }
+        }
+
     }
     return task;
 }
@@ -523,7 +540,7 @@ void post(struct semaphore *pSemaphore)
 
 // REQUIRED: modify this function to add support for the system timer
 // REQUIRED: in preemptive code, add code to request task switch
-void systickIsr()
+void systickIsr(void)
 {
     uint32_t i;
 
@@ -620,7 +637,7 @@ uint32_t ret_R2(void)
     return 0;
 }
 
-
+uint8_t i, j = 0;
 // REQUIRED: modify this function to add support for the service call
 // REQUIRED: in preemptive code, add code to handle synchronization primitives
 void svCallIsr(void)
@@ -650,19 +667,19 @@ void svCallIsr(void)
 
     case svcWAIT:
                   SemaphorePt = (struct semaphore*)R0;                        // Get the pointer to the semaphore
-
+                  //putsUart0("svcWait \r\n");
                   if(SemaphorePt->count > 0)                                  // Check for value of sem count variable
                   {
                       SemaphorePt->count--;                                   // Decrement the count if count > 0
                   }
                   else
                   {
-                      SemaphorePt->processQueue[SemaphorePt->queueSize] =     // Store task in sem process queue
+                      SemaphorePt->processQueue[SemaphorePt->queueSize] =     // Store task in semaphore process queue
                                            (uint32_t)tcb[taskCurrent].pid;
 
                       SemaphorePt->queueSize++;                               // Increment the index of the queue for next task
                       tcb[taskCurrent].state     = STATE_BLOCKED;             // Mark the state of of current task as blocked
-                      tcb[taskCurrent].semaphore = SemaphorePt;               // Store the pointer to semaphore
+                      tcb[taskCurrent].semaphore = SemaphorePt;               // Store the pointer to semaphore, record the semaphore
 
                       NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;               // Set pendsv Inside 'else' since we don't have switch task all the time
                   }
@@ -671,6 +688,27 @@ void svCallIsr(void)
     case svcPOST:
                  SemaphorePt = (struct semaphore*)R0;                         // Get Pointer to the semaphore
                  SemaphorePt->count++;                                        // Increment the count
+                 //putsUart0("svcPOST \r\n");
+                 if(SemaphorePt->queueSize > 0)
+                 {
+                     //someone is waiting in the semaphore queue
+
+                     for(j = 0; j < MAX_TASKS; j++)
+                     {
+                         for(i = 0; i < SemaphorePt->queueSize;  i++)
+                         {
+                             if(SemaphorePt->processQueue[i] == (uint32_t)tcb[j].pid)
+                             {
+                                 SemaphorePt->processQueue[i] = 0;
+                                 tcb[j].state = STATE_READY;
+                                 SemaphorePt->queueSize --;
+
+                             }
+                         }
+                     }
+                 }
+                 NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                   //optional
+                 break;
 
 
     default:                                                                  // Used for Debugging
@@ -708,27 +746,20 @@ uint32_t* getStackPt()
 
 // one task must be ready at all times or the scheduler will fail
 // the idle task is implemented for this purpose
+
+
 void idle(void)
 {
     while(true)
     {
+        putsUart0("idle begin \r\n");
         ORANGE_LED = 1;
         waitMicrosecond(1000000);
         ORANGE_LED = 0;
+        putsUart0("idle end \r\n");
         yield();
     }
 }
-
-//void idle2(void)
-//{
-//    while(true)
-//    {
-//        YELLOW_LED = 1;
-//        waitMicrosecond(1000000);
-//        YELLOW_LED = 0;
-//        yield();
-//    }
-//}
 
 void flash4Hz(void)
 {
@@ -750,6 +781,45 @@ void oneshot()
         YELLOW_LED = 0;
     }
 }
+
+
+
+void partOfLengthyFn()
+{
+    // represent some lengthy operation
+    waitMicrosecond(990);
+    // give another process a chance to run
+    yield();
+}
+
+void lengthyFn()
+{
+    uint16_t i;
+    while(true)
+    {
+        wait(resource);
+        for (i = 0; i < 5000; i++)
+        {
+            partOfLengthyFn();
+        }
+        RED_LED ^= 1;
+        post(resource);
+    }
+}
+
+
+void important()
+{
+    while(true)
+    {
+        wait(resource);
+        BLUE_LED = 1;
+        sleep(1000);
+        BLUE_LED = 0;
+        post(resource);
+    }
+}
+
 
 //-----------------------------------------------------------------------------
 // Subroutines
@@ -1506,18 +1576,18 @@ void reset_buffer(void)
 
 void project_info(void)
 {
-    putsUart0("\033]2;| Name:Aditya Mall | (c) 2019 |\007");                                                              // Window Title Information
-    putsUart0("\033]10;#FFFFFF\007");                                                                                     // Text Color (RGB)
-    putsUart0("\033]11;#E14141\007");                                                                                     // Background Color (RGB)
+    putsUart0("\033]2;| Name:Aditya Mall | (c) 2019 |\007");                                                               // Window Title Information
+    putsUart0("\033]10;#FFFFFF\007");                                                                                      // Text Color (RGB)
+    putsUart0("\033]11;#E14141\007");                                                                                      // Background Color (RGB)
 
     putsUart0("\r\n");
-    putsUart0("Project: RTOS for EK-TM4C123GXL Evaluation Board.\r\n");                                                   // Project Name
-    putsUart0("Name   : Aditya Mall \r\n");                                                                               // Author Name
-    putsUart0("Course : EE-6314 \r\n" );                                                                                  // Author ID
-    putsUart0("email  : \033[38;5;51;4maditya.mall@mavs.uta.edu\033[0m \r\n");                                            // Email Info, Foreground color:Cyan
+    putsUart0("Project: RTOS for EK-TM4C123GXL Evaluation Board.\r\n");                                                    // Project Name
+    putsUart0("Name   : Aditya Mall \r\n");                                                                                // Author Name
+    putsUart0("Course : EE-6314 \r\n" );                                                                                   // Author ID
+    putsUart0("email  : \033[38;5;51;4maditya.mall@mavs.uta.edu\033[0m \r\n");                                             // Email Info, Foreground color:Cyan
 
     putsUart0("\r\n");
-    putsUart0("\033[33;1m!! This Program requires Local Echo, please enable Local Echo from settings !!\033[0m \r\n");    // Foreground color:Yellow
+    putsUart0("\033[33;1m!! This Program requires Local Echo, please enable Local Echo from settings !!\033[0m \r\n");     // Foreground color:Yellow
     putsUart0("\033[33;1m!! Set Stack Size to 1024 bytes if you wish to compile and run the source code !!\033[0m \r\n");
     putsUart0("\r\n");
 
@@ -1734,9 +1804,11 @@ int main(void)
     ok  = createThread(idle, "Idle", 7);
 
     // Create Other Tasks
-    //ok &= createThread(idle2, "Idle2", 1);
+    //ok &= createThread(idle2, "Idle2", 7);
+    ok &= createThread(lengthyFn, "LengthyFn", 4);
     ok &= createThread(flash4Hz,"Flash4hz", 0);
     ok &= createThread(oneshot, "OneShot", -4);
+    ok &= createThread(important, "Important", -8);
 
 
     // Start up RTOS
