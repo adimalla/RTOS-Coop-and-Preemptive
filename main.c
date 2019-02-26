@@ -4,7 +4,7 @@
 //******************************************************************************//
 // File            : main.c                                                     //
 // Author          : Aditya Mall                                                //
-// Date            : 02/05/2019                                                 //
+// Date            : 02/26/2019                                                 //
 // Copyright       : (c) 2019, Aditya Mall, Mentor: Dr. Jason Losh,             //
 //                   The University of Texas at Arlington.                      //
 // Project         : RTOS Framework EK-TM4C123GXL Evaluation Board.             //
@@ -14,7 +14,7 @@
 // System Clock    : 40 MHz                                                     //
 // UART Baudrate   : 115200                                                     //
 // Data Length     : 8 Bits                                                     //
-// Version         : 1.5                                                        //
+// Version         : 1.5.1                                                      //
 //                                                                              //
 // Hardware configuration:                                                      //
 //                                                                              //
@@ -74,12 +74,17 @@
 
 //*********** Versions ***************//
 //
-// Version 1.5-(02/23/2018)
+// Version 1.5.1 -(02/26/2019)
+// info:
+//      - step 8 and 9 added succefully, confirmation pending
+//      - performance improvement in buffer clear and reset
+//
+// Version 1.5-(02/23/2019)
 // info:
 //      - Step 4, 5, 6 and 7 added,
 //      - svc offset changes #48, (queue struct member is used in processQueue array)
 //
-// Version 1.4-(02/09/3019)
+// Version 1.4-(02/09/2019)
 // info:
 ///     - Step 1 Added, setStackPt and getStackPt
 //      - Step 2 and 3 Added, yield implementation and pendsvc call
@@ -137,6 +142,8 @@ uint8_t get_svcValue(void);
 void setStackPt(void* func_stack);
 uint32_t* getStackPt();
 
+uint8_t readPbs(void);
+
 // semaphore
 #define MAX_SEMAPHORES 5
 #define MAX_QUEUE_SIZE 5
@@ -178,6 +185,8 @@ struct _tcb
     uint32_t ticks;                  // ticks until sleep complete
     char name[16];                   // name of task used in ps command
     void *semaphore;                 // pointer to the semaphore that is blocking the thread
+    uint8_t skipCount;
+
 } tcb[MAX_TASKS];
 
 
@@ -202,7 +211,7 @@ uint8_t svc_value;                   // Value of service call by SVC instruction
 
 //*******************Debug and Code test defines**********************//
 #ifndef DEBUG
-#define DEBUG
+//#define DEBUG
 #endif
 
 #ifndef TEST
@@ -269,8 +278,8 @@ uint8_t svc_value;                   // Value of service call by SVC instruction
 
 //************************** Project Specific Defines **********************//
 
-#define MAX_SIZE                  80
-#define MAX_ARGS                  80
+#define MAX_SIZE                  40
+#define MAX_ARGS                  20
 
 #define DELIMS                    ( (string[i] >= 33 && string[i] <= 44) || \
                                     (string[i] >= 46 && string[i] <= 47) || \
@@ -363,7 +372,7 @@ uint8_t args_updated = 0;                                                       
 
 // Struct variables
 test_modes_type testMode;
-int char_count = 0;
+
 
 
 //-----------------------------------------------------------------------------
@@ -383,10 +392,10 @@ void rtosInit()
     }
 
     // REQUIRED: initialize systick for 1ms system timer
-    NVIC_ST_CTRL_R     = 0;                      // Clear Control bit for safe programming
-    NVIC_ST_CURRENT_R  = 0;                      // Start Value
-    NVIC_ST_RELOAD_R   = 40000;                  // Set for 1Khz
-    NVIC_ST_CTRL_R     = 7;                      // set for source as clock interrupt enable and enable the timer.
+    NVIC_ST_CTRL_R     = 0;                                                                // Clear Control bit for safe programming
+    NVIC_ST_CURRENT_R  = 0;                                                                // Start Value
+    NVIC_ST_RELOAD_R   = 40000 - 1;                                                            // Set for 1Khz
+    NVIC_ST_CTRL_R     = NVIC_ST_CTRL_CLK_SRC | NVIC_ST_CTRL_INTEN | NVIC_ST_CTRL_ENABLE;  // set for source as clock interrupt enable and enable the timer.
 }
 
 
@@ -394,7 +403,7 @@ void rtosInit()
 // REQUIRED: Implement prioritization to 8 levels
 int rtosScheduler()
 {
-    uint32_t skip_count = 0;
+
 
     bool ok;
     static uint8_t task = 0xFF;
@@ -405,16 +414,19 @@ int rtosScheduler()
         if (task >= MAX_TASKS)
             task = 0;
 
-        ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
-        if(skip_count < tcb[task].priority + 8)
-        {
-            skip_count++;
-            ok = 0;
 
-            if(skip_count == tcb[task].priority +8)
+        ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
+
+        if(tcb[task].skipCount < tcb[task].priority + 8)
+        {
+            tcb[task].skipCount++;
+            //tcb[task].state == STATE_DELAYED;
+            ok = false;
+
+            if(tcb[task].skipCount == tcb[task].priority + 8)
             {
                 ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
-                skip_count = 0;
+                tcb[task].skipCount = 0;
             }
         }
 
@@ -476,6 +488,7 @@ bool createThread(_fn fn, char name[], int priority)
             tcb[i].sp = &stack[i][255];
             tcb[i].priority = priority;
             tcb[i].currentPriority = priority;
+            tcb[i].skipCount = priority;
             // increment task count
             taskCount++;
             ok = true;
@@ -555,7 +568,6 @@ void systickIsr(void)
         }
 
     }
-
 }
 
 uint32_t* PC_VAL = 0;
@@ -593,7 +605,7 @@ void pendSvIsr(void)
         __asm(" PUSH {R12}"          );
         __asm(" PUSH {R0-R3}"        );
 
-        __asm(" PUSH {R4}"           );    //value of LR
+        __asm(" PUSH {R4}"           );        //value of LR
         __asm(" PUSH {R3}"           );
 
     }
@@ -707,7 +719,7 @@ void svCallIsr(void)
                          }
                      }
                  }
-                 NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                   //optional
+                 //NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                  // optional
                  break;
 
 
@@ -740,130 +752,7 @@ uint32_t* getStackPt()
 }
 
 
-//------------------------------------------------------------------------------
-//  Task functions
-// ------------------------------------------------------------------------------
 
-// one task must be ready at all times or the scheduler will fail
-// the idle task is implemented for this purpose
-
-
-void idle(void)
-{
-    while(true)
-    {
-        putsUart0("idle begin \r\n");
-        ORANGE_LED = 1;
-        waitMicrosecond(1000000);
-        ORANGE_LED = 0;
-        putsUart0("idle end \r\n");
-        yield();
-    }
-}
-
-void flash4Hz(void)
-{
-    while(true)
-    {
-        GREEN_LED ^= 1;
-        sleep(125);
-    }
-}
-
-
-void oneshot()
-{
-    while(true)
-    {
-        wait(flashReq);
-        YELLOW_LED = 1;
-        sleep(1000);
-        YELLOW_LED = 0;
-    }
-}
-
-
-
-void partOfLengthyFn()
-{
-    // represent some lengthy operation
-    waitMicrosecond(990);
-    // give another process a chance to run
-    yield();
-}
-
-void lengthyFn()
-{
-    uint16_t i;
-    while(true)
-    {
-        wait(resource);
-        for (i = 0; i < 5000; i++)
-        {
-            partOfLengthyFn();
-        }
-        RED_LED ^= 1;
-        post(resource);
-    }
-}
-
-
-void important()
-{
-    while(true)
-    {
-        wait(resource);
-        BLUE_LED = 1;
-        sleep(1000);
-        BLUE_LED = 0;
-        post(resource);
-    }
-}
-
-
-//-----------------------------------------------------------------------------
-// Subroutines
-//-----------------------------------------------------------------------------
-
-uint8_t readPbs()
-{
-    uint8_t retval_button = 0;
-
-    waitMicrosecond(50000);
-    if(!PB0)
-    {
-        retval_button |= 1;
-    }
-
-    if(!PB1)
-    {
-        retval_button |= 2;
-    }
-
-    if(!PB2)
-    {
-        retval_button |= 4;
-    }
-
-    if(!PB3)
-    {
-        retval_button |= 8;
-    }
-
-    if(!PB4)
-    {
-        retval_button |= 16;
-    }
-
-    if(!ONBOARD_PUSH_BUTTON)
-    {
-        testMode.external_hw_test = 0;
-        //carriage_return = 1;
-    }
-
-
-    return retval_button;
-}
 //*****************************************************************************//
 //                                                                             //
 //                     HARDWARE INTIALIZATION FUNCTION                         //
@@ -985,7 +874,8 @@ void putsUart0(const char* str)
 // Blocking function that returns with serial data once the buffer is not empty
 char getcUart0(void)
 {
-    while (UART0_FR_R & UART_FR_RXFE);
+    while (UART0_FR_R & UART_FR_RXFE)
+        yield();
     return UART0_DR_R & 0xFF;
 }
 
@@ -1056,7 +946,10 @@ void putnUart0(uint32_t Number)
 void command_line(void)
 {
     char char_input = 0;
-    //int char_count =0;
+    int char_count  = 0;
+
+    putsUart0("\r\n");
+    putsUart0("\033[1;32m$>\033[0m");
 
     while(1)
     {
@@ -1066,6 +959,7 @@ void command_line(void)
 
         if (char_input == 13)
         {
+            putsUart0("\r\n");
             string[char_count] = '\0';
             char_count = 0;
             break;
@@ -1074,8 +968,6 @@ void command_line(void)
         // Cursor processing
         if (char_input == 27)
         {
-            putsUart0("esc");
-
             char next_1 = getcUart0();
             char next_2 = getcUart0();
 
@@ -1112,7 +1004,6 @@ void command_line(void)
                 putcUart0(' ');
                 putsUart0("\033[D");
                 char_count--;
-                //char_count = '\0';
                 continue;
             }
         }
@@ -1135,7 +1026,7 @@ void command_line(void)
 
     }
 
-    putsUart0("\r\n");
+    //putsUart0("\r\n");
 
 }
 
@@ -1532,9 +1423,9 @@ void reset_new_string(void)
     uint8_t i = 0;
     uint8_t j = 0;
 
-    for (i = 0; i < MAX_ARGS; i++)
+    for (i = 0; i < args_updated; i++)
     {
-        for (j = 0; j < MAX_SIZE; j++)
+        for (j = 0; j < uSTRLEN(new_string[i]); j++)
         {
             new_string[i][j] = '\0';
         }
@@ -1547,7 +1438,7 @@ void reset_buffer(void)
 {
     uint8_t i = 0;
 
-    for (i = 0; i < MAX_SIZE; i++)
+    for (i = 0; i < uSTRLEN(string); i++)
     {
         string[i] = '\0';
         a[i] = '\0';
@@ -1559,7 +1450,7 @@ void reset_buffer(void)
     args_updated = 0;
     args_no      = 0;
     args_str     = 0;
-    char_count   = 0;
+
 
     reset_new_string();
 
@@ -1578,7 +1469,7 @@ void project_info(void)
 {
     putsUart0("\033]2;| Name:Aditya Mall | (c) 2019 |\007");                                                               // Window Title Information
     putsUart0("\033]10;#FFFFFF\007");                                                                                      // Text Color (RGB)
-    putsUart0("\033]11;#E14141\007");                                                                                      // Background Color (RGB)
+    //putsUart0("\033]11;#E14141\007");                                                                                      // Background Color (RGB)
 
     putsUart0("\r\n");
     putsUart0("Project: RTOS for EK-TM4C123GXL Evaluation Board.\r\n");                                                    // Project Name
@@ -1588,7 +1479,6 @@ void project_info(void)
 
     putsUart0("\r\n");
     putsUart0("\033[33;1m!! This Program requires Local Echo, please enable Local Echo from settings !!\033[0m \r\n");     // Foreground color:Yellow
-    putsUart0("\033[33;1m!! Set Stack Size to 1024 bytes if you wish to compile and run the source code !!\033[0m \r\n");
     putsUart0("\r\n");
 
 
@@ -1597,6 +1487,16 @@ void project_info(void)
 
 void TIVA_shell(void)
 {
+
+    //************************************* Clear the Terminal Screen ******************************************//
+
+
+    if (uSTRCMP(new_string[0], "clear") == 0)
+    {
+        clear_screen();                                        // Call Clear Screen Function
+        putsUart0("Screen Cleared \r\n");                      // Print to tell user that screen is cleared
+    }
+
 
     //*************************************** process status command *******************************************//
     if (is_command("ps", 0) == 1)
@@ -1608,12 +1508,7 @@ void TIVA_shell(void)
     {
         putsUart0("\"ps\" command requires no arguments \r\n");
     }
-#ifdef DEBUG
-    else
-    {
-        putsUart0("Else condition of \"ps\", command not called \r\n");
-    }
-#endif
+
 
 
     //******************************************** kill command *************************************************//
@@ -1626,12 +1521,7 @@ void TIVA_shell(void)
     {
         putsUart0("\"kill\" command requires only 1 argument \r\n");
     }
-#ifdef DEBUG
-    else
-    {
-        putsUart0("Else condition of \"kill\", command not called \r\n");
-    }
-#endif
+
 
 
     //******************************************** ipcs command *************************************************//
@@ -1644,12 +1534,7 @@ void TIVA_shell(void)
     {
         putsUart0("\"ipcs\" command requires no arguments \r\n");
     }
-#ifdef DEBUG
-    else
-    {
-        putsUart0("Else condition of \"ipcs\", command not called \r\n");
-    }
-#endif
+
 
 
     //********************************************* pidof command ************************************************//
@@ -1662,12 +1547,7 @@ void TIVA_shell(void)
     {
         putsUart0("\"pidof\" command requires only 1 argument \r\n");
     }
-#ifdef DEBUG
-    else
-    {
-        putsUart0("Else condition of \"pidof\", command not called \r\n");
-    }
-#endif
+
 
 
     //********************************************* preempt command ***********************************************//
@@ -1680,12 +1560,7 @@ void TIVA_shell(void)
     {
         putsUart0("\"preempt\" command requires 1 argument \r\n");
     }
-#ifdef DEBUG
-    else
-    {
-        putsUart0("Else condition of \"preempt\", command not called \r\n");
-    }
-#endif
+
 
 
     //********************************************** reboot command ***********************************************//
@@ -1703,12 +1578,7 @@ void TIVA_shell(void)
     {
         putsUart0("\"reboot\" command requires no arguments \r\n");
     }
-#ifdef DEBUG
-    else
-    {
-        putsUart0("Else condition of \"reboot\", command not called \r\n");
-    }
-#endif
+
 
     //************************************************* USER IO (echo) ********************************************//
 
@@ -1765,6 +1635,217 @@ void TIVA_shell(void)
 
 }
 
+//-----------------------------------------------------------------------------
+// Subroutines
+//-----------------------------------------------------------------------------
+
+uint8_t readPbs(void)
+{
+    uint8_t retval_button = 0;
+
+    waitMicrosecond(50000);
+    if(!PB0)
+    {
+        retval_button |= 1;
+    }
+
+    if(!PB1)
+    {
+        retval_button |= 2;
+    }
+
+    if(!PB2)
+    {
+        retval_button |= 4;
+    }
+
+    if(!PB3)
+    {
+        retval_button |= 8;
+    }
+
+    if(!PB4)
+    {
+        retval_button |= 16;
+    }
+
+    if(!ONBOARD_PUSH_BUTTON)
+    {
+
+    }
+
+    return retval_button;
+}
+
+
+//------------------------------------------------------------------------------
+//  Task functions
+// ------------------------------------------------------------------------------
+
+// one task must be ready at all times or the scheduler will fail
+// the idle task is implemented for this purpose
+
+
+void idle()
+{
+    while(true)
+    {
+        ORANGE_LED = 1;
+        waitMicrosecond(1000);
+        ORANGE_LED = 0;
+        yield();
+    }
+}
+
+void flash4Hz()
+{
+    while(true)
+    {
+        GREEN_LED ^= 1;
+        sleep(125);
+    }
+}
+
+void oneshot()
+{
+    while(true)
+    {
+        wait(flashReq);
+        YELLOW_LED = 1;
+        sleep(1000);
+        YELLOW_LED = 0;
+    }
+}
+
+
+void partOfLengthyFn()
+{
+    // represent some lengthy operation
+    waitMicrosecond(990);
+    // give another process a chance to run
+    yield();
+}
+
+
+void lengthyFn()
+{
+    uint16_t i;
+    while(true)
+    {
+        wait(resource);
+        for (i = 0; i < 5000; i++)
+        {
+            partOfLengthyFn();
+        }
+        RED_LED ^= 1;
+        post(resource);
+    }
+}
+
+
+void important()
+{
+    while(true)
+    {
+        wait(resource);
+        BLUE_LED = 1;
+        sleep(1000);
+        BLUE_LED = 0;
+        post(resource);
+    }
+}
+
+void readKeys()
+{
+    uint8_t buttons;
+    while(true)
+    {
+        wait(keyReleased);
+        buttons = 0;
+        while (buttons == 0)
+        {
+            buttons = readPbs();
+            yield();
+        }
+        post(keyPressed);
+        if ((buttons & 1) != 0)
+        {
+            YELLOW_LED ^= 1;
+            RED_LED = 1;
+        }
+        if ((buttons & 2) != 0)
+        {
+            post(flashReq);
+            RED_LED = 0;
+        }
+        if ((buttons & 4) != 0)
+        {
+            createThread(flash4Hz, "Flash4Hz", 0);
+        }
+        if ((buttons & 8) != 0)
+        {
+            //destroyThread(flash4Hz);
+        }
+        if ((buttons & 16) != 0)
+        {
+            //setThreadPriority(lengthyFn, 4);
+        }
+        yield();
+    }
+}
+
+void debounce()
+{
+    uint8_t count;
+    while(true)
+    {
+        wait(keyPressed);
+        count = 10;
+        while (count != 0)
+        {
+            sleep(10);
+            if (readPbs() == 0)
+                count--;
+            else
+                count = 10;
+        }
+        post(keyReleased);
+    }
+}
+
+
+void uncooperative()
+{
+    while(true)
+    {
+        while (readPbs() == 8)
+        {
+        }
+        yield();
+    }
+}
+
+
+void shell()
+{
+    // Project Info
+    clear_screen();
+
+    project_info();
+
+    while(true)
+    {
+        command_line();
+
+        parse_string();
+
+        TIVA_shell();
+
+        reset_buffer();
+
+    }
+}
+
 
 //*****************************************************************************//
 //                                                                             //
@@ -1780,10 +1861,6 @@ int main(void)
 
     // Initialize hardware
     initHw();
-
-    // Project Info
-    clear_screen();
-    project_info();
 
     // Initialize OS
     rtosInit();
@@ -1808,7 +1885,11 @@ int main(void)
     ok &= createThread(lengthyFn, "LengthyFn", 4);
     ok &= createThread(flash4Hz,"Flash4hz", 0);
     ok &= createThread(oneshot, "OneShot", -4);
+    ok &= createThread(readKeys, "ReadKeys", 4);
+    ok &= createThread(debounce, "Debounce", 4);
     ok &= createThread(important, "Important", -8);
+    ok &= createThread(uncooperative, "Uncoop", 2);
+    ok &= createThread(shell, "Shell", 0);
 
 
     // Start up RTOS

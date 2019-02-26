@@ -2,17 +2,17 @@
 ## github repo
 https://github.com/adimalla/RTOS_6314
 
-
 ## Update notes
-
-
+Date:02/26/2019
 
 ## Change log and versions 
-
-
+-Perfomance improvements in reset buffer clear loop
+-Priorities added succedfully, cofirmation pending.
 
 ## Bugs
-
+Date:02/26/2019
+-Possible bug: 'lengthyfn()' thread takking too long
+-Cursor Bug
 
 
 
