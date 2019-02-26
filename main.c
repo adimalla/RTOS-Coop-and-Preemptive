@@ -186,7 +186,8 @@ struct _tcb
     uint32_t ticks;                  // ticks until sleep complete
     char name[16];                   // name of task used in ps command
     void *semaphore;                 // pointer to the semaphore that is blocking the thread
-    uint8_t skipCount;
+    int8_t skipCount;
+    char taskName[16];
 
 } tcb[MAX_TASKS];
 
@@ -393,10 +394,10 @@ void rtosInit()
     }
 
     // REQUIRED: initialize systick for 1ms system timer
-    NVIC_ST_CTRL_R     = 0;                                                                // Clear Control bit for safe programming
-    NVIC_ST_CURRENT_R  = 0;                                                                // Start Value
+    NVIC_ST_CTRL_R     = 0;                                                                    // Clear Control bit for safe programming
+    NVIC_ST_CURRENT_R  = 0;                                                                    // Start Value
     NVIC_ST_RELOAD_R   = 40000 - 1;                                                            // Set for 1Khz
-    NVIC_ST_CTRL_R     = NVIC_ST_CTRL_CLK_SRC | NVIC_ST_CTRL_INTEN | NVIC_ST_CTRL_ENABLE;  // set for source as clock interrupt enable and enable the timer.
+    NVIC_ST_CTRL_R     = NVIC_ST_CTRL_CLK_SRC | NVIC_ST_CTRL_INTEN | NVIC_ST_CTRL_ENABLE;      // set for source as clock interrupt enable and enable the timer.
 }
 
 
@@ -404,8 +405,6 @@ void rtosInit()
 // REQUIRED: Implement prioritization to 8 levels
 int rtosScheduler()
 {
-
-
     bool ok;
     static uint8_t task = 0xFF;
     ok = false;
@@ -416,19 +415,24 @@ int rtosScheduler()
             task = 0;
 
 
-        ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
+        //ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
 
         if(tcb[task].skipCount < tcb[task].priority + 8)
         {
             tcb[task].skipCount++;
-            //tcb[task].state == STATE_DELAYED;
             ok = false;
 
-            if(tcb[task].skipCount == tcb[task].priority + 8)
-            {
-                ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
-                tcb[task].skipCount = 0;
-            }
+//            if(tcb[task].skipCount == tcb[task].priority + 8)
+//            {
+//                tcb[task].skipCount = 0;
+//                ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
+//            }
+        }
+
+        if(tcb[task].skipCount == tcb[task].priority + 8)
+        {
+            //tcb[task].skipCount = 0;
+            ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
         }
 
     }
@@ -483,13 +487,17 @@ bool createThread(_fn fn, char name[], int priority)
         {
             // find first available tcb record
             i = 0;
+
             while (tcb[i].state != STATE_INVALID) {i++;}
             tcb[i].state = STATE_UNRUN;
             tcb[i].pid = fn;
             tcb[i].sp = &stack[i][255];
             tcb[i].priority = priority;
             tcb[i].currentPriority = priority;
-            tcb[i].skipCount = priority;
+            uSTRCPY(tcb[i].taskName, name);
+
+            putsUart0(tcb[i].taskName);
+            putsUart0("\r\n");
             // increment task count
             taskCount++;
             ok = true;
@@ -588,6 +596,7 @@ void pendSvIsr(void)
 
     if(tcb[taskCurrent].state == STATE_READY)
     {
+        tcb[taskCurrent].skipCount = 0;
         setStackPt(tcb[taskCurrent].sp);
 
         __asm(" POP {R4-R11}");
@@ -595,6 +604,7 @@ void pendSvIsr(void)
     }
     else if(tcb[taskCurrent].state == STATE_UNRUN)// unrun
     {
+        tcb[taskCurrent].skipCount = 0;
         tcb[taskCurrent].state = STATE_READY;
         setStackPt(tcb[taskCurrent].sp);
 
@@ -1830,6 +1840,7 @@ void uncooperative()
 void shell()
 {
     // Project Info
+
     clear_screen();
 
     project_info();
