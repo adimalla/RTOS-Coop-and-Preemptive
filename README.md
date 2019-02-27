@@ -1,8 +1,8 @@
 # RTOS_6314   
 RTOS for coursework
 
-### branch 
-master
+# branch 
+branch_ver-1.5.2
 
 ## github repo
 https://github.com/adimalla/RTOS_6314
