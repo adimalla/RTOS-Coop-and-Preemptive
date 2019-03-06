@@ -590,7 +590,7 @@ void pendSvIsr(void)
 
     }
 
-    else if(tcb[taskCurrent].state == STATE_UNRUN)// unrun
+    if(tcb[taskCurrent].state == STATE_UNRUN)// unrun
     {
         tcb[taskCurrent].state = STATE_READY;
         setStackPt(tcb[taskCurrent].sp);
@@ -626,7 +626,7 @@ void pendSvIsr(void)
 //        stack[taskCurrent][239] = 2;
 //        stack[taskCurrent][238] = 1;
 //
-//        tcb[taskCurrent].sp = &stack[taskCurrent][238];
+//        tcb[taskCurrent].sp = &stack[taskCurrent][240];
 
     }
 //    setStackPt(tcb[taskCurrent].sp);
