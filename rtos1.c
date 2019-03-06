@@ -15,6 +15,7 @@
 // UART Baudrate   : 115200                                                     //
 // Data Length     : 8 Bits                                                     //
 // Version         : 1.5.1                                                      //
+// Version Control : GIT                                                        //
 //                                                                              //
 // Hardware configuration:                                                      //
 //                                                                              //
