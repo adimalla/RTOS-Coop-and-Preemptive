@@ -78,11 +78,12 @@
 // Version 1.5.3 -(03/06/2019)
 // info:
 //      - step 13, preemptive scheduler support implemented
+//      - step 9, modified to add round-robin and priority scheduling selection, confirmation pending
 //
 // Version 1.5.2 -(02/27/2019)
 // info:
 //      - Lengthyfn() taking too long bug removed,
-//      - Confirmation of priorties working correctly, previously there was a problem.
+//      - Confirmation of priorities working correctly, previously there was a problem.
 //
 // Version 1.5.1 -(02/26/2019)
 // info:
@@ -218,7 +219,7 @@ struct osScheduler
 {
     uint8_t preemptiveEnable;
     uint8_t priorityEnable;
-    uint8_t roundRobinEnable;
+
 };
 
 struct osScheduler scheduler;
@@ -404,8 +405,13 @@ uint32_t* updated_stackPT;
 void rtosInit()
 {
     uint8_t i;
+
     // no tasks running
     taskCount = 0;
+
+    // Default State = priority scheduling
+    scheduler.priorityEnable = 1;
+
     // clear out tcb records
     for (i = 0; i < MAX_TASKS; i++)
     {
@@ -434,20 +440,28 @@ int rtosScheduler()
         if (task >= MAX_TASKS)
             task = 0;
 
-
-        if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)                   // Skip only if the tasks are ready or unrun and not in blocked state
+        // Priority Scheduling
+        if(scheduler.priorityEnable == 1)
         {
-            if(tcb[task].skipCount < tcb[task].currentPriority + 8)
+            if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)                   // Skip only if the tasks are ready or unrun and not in blocked state
             {
-                tcb[task].skipCount++;
-                ok = false;
-            }
+                if(tcb[task].skipCount < tcb[task].currentPriority + 8)
+                {
+                    tcb[task].skipCount++;
+                    ok = false;
+                }
 
-            else if(tcb[task].skipCount >= tcb[task].currentPriority + 8)
-            {
-                tcb[task].skipCount = 0;
-                ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
+                else if(tcb[task].skipCount >= tcb[task].currentPriority + 8)
+                {
+                    tcb[task].skipCount = 0;
+                    ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
+                }
             }
+        }
+        // Round-Robin Scheduling
+        if(scheduler.priorityEnable == 0)
+        {
+            ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
         }
 
     }
@@ -483,6 +497,7 @@ bool createThread(_fn fn, char name[], int priority)
     bool ok = false;
     uint8_t i = 0;
     bool found = false;
+
     // REQUIRED: store the thread name
     // add task if room in task list
     if (taskCount < MAX_TASKS)
@@ -1442,6 +1457,42 @@ void TIVA_shell(void)
     }
 
 
+    //************************************* scheduler type command ******************************************//
+
+    if(is_command("sched", 1) == 1)
+    {
+
+        // Enable round robbin scheduler
+        if(uSTRCMP(new_string[1], "rr") == 0)
+        {
+            scheduler.priorityEnable = 0;
+            putsUart0("Round-Robin Scheduling Enabled \r\n");
+
+        }
+        // Enable default Priority Scheduler
+        else if(uSTRCMP(new_string[1], "priority") == 0)
+        {
+            scheduler.priorityEnable = 1;
+            putsUart0("Priority Scheduling Enabled \r\n");
+
+        }
+        // Check for unsupported arguments
+        else
+        {
+            putsUart0("ERROR: unsupported argument for \"sched\"\r\n");
+            putsUart0("USAGE: sched [rr/priority] \r\n");
+
+        }
+
+    }
+    else if (is_command("sched", 1) == -1)
+    {
+        putsUart0("\r\n");
+        putsUart0("ERROR:\"sched\" Argument Missing, USAGE: sched [rr/priority] \r\n");
+        putsUart0("\r\n");
+    }
+
+
     //*************************************** process status command *******************************************//
     if (is_command("ps", 0) == 1)
     {
@@ -1498,28 +1549,33 @@ void TIVA_shell(void)
     if (is_command("preempt", 1) == 1)
     {
 
+        // Enable Preemptive Scheduler
         if(uSTRCMP(new_string[1], "on") == 0)
         {
             scheduler.preemptiveEnable = 1;
             putsUart0("preemptive scheduler on \r\n");
 
-
         }
+        // Enable default Scheduler (Cooperative), disable Preemptive
         else if(uSTRCMP(new_string[1], "off") == 0)
         {
             scheduler.preemptiveEnable = 0;
             putsUart0("preemptive scheduler off \r\n");
 
         }
+        // Check for unsupported arguments
         else
         {
-            putsUart0("ERROR: wrong argument for \"preempt\":[on/off] \r\n");
+            putsUart0("ERROR: unsupported argument for \"preempt\"\r\n");
+            putsUart0("USAGE: preempt [on/off] \r\n");
         }
 
     }
     else if (is_command("preempt", 1) == -1)
     {
-        putsUart0("\"preempt\" command requires 1 argument \r\n");
+        putsUart0("\r\n");
+        putsUart0("ERROR:\"preempt\" Argument Missing, USAGE: preempt [on/off] \r\n");
+        putsUart0("\r\n");
     }
 
 
@@ -1697,6 +1753,7 @@ void lengthyFn()
         }
         RED_LED ^= 1;
         post(resource);
+
 
     }
 }
