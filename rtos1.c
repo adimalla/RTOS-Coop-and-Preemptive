@@ -74,6 +74,15 @@
 
 //*********** Versions ***************//
 //
+// Version 1.5.3 -(03/06/2019)
+// info:
+//      - step 13, preemptive scheduler support implemented
+//
+// Version 1.5.2 -(02/27/2019)
+// info:
+//      - Lengthyfn() taking too long bug removed,
+//      - Confirmation of priorties working correctly, previously there was a problem.
+//
 // Version 1.5.1 -(02/26/2019)
 // info:
 //      - step 8 and 9 added successfully, confirmation pending
@@ -202,6 +211,16 @@ enum svc_cases
 
 uint32_t* SystemStackPt;             // Pointer to the Main Stack pointer
 uint8_t svc_value;                   // Value of service call by SVC instruction
+
+
+struct osScheduler
+{
+    uint8_t preemptiveEnable;
+    uint8_t priorityEnable;
+    uint8_t roundRobinEnable;
+};
+
+struct osScheduler scheduler;
 
 
 //*****************************************************************************//
@@ -554,6 +573,7 @@ void systickIsr(void)
 {
     uint32_t i;
 
+    // sleep function support
     for(i=0; i < MAX_TASKS; i++)
     {
         if(tcb[i].state == STATE_DELAYED)
@@ -563,8 +583,12 @@ void systickIsr(void)
             if(tcb[i].ticks == 0)
                 tcb[i].state = STATE_READY;
         }
-
     }
+
+    // preemptive scheduler support
+    if(scheduler.preemptiveEnable)
+        NVIC_INT_CTRL_R= NVIC_INT_CTRL_PEND_SV;
+
 }
 
 uint32_t* PC_VAL = 0;
@@ -1472,7 +1496,24 @@ void TIVA_shell(void)
     //********************************************* preempt command ***********************************************//
     if (is_command("preempt", 1) == 1)
     {
-        putsUart0("preempt on/off \r\n");
+
+        if(uSTRCMP(new_string[1], "on") == 0)
+        {
+            scheduler.preemptiveEnable = 1;
+            putsUart0("preemptive scheduler on \r\n");
+
+
+        }
+        else if(uSTRCMP(new_string[1], "off") == 0)
+        {
+            scheduler.preemptiveEnable = 0;
+            putsUart0("preemptive scheduler off \r\n");
+
+        }
+        else
+        {
+            putsUart0("ERROR: wrong argument for \"preempt\":[on/off] \r\n");
+        }
 
     }
     else if (is_command("preempt", 1) == -1)
