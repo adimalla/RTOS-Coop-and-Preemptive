@@ -3,9 +3,10 @@ RTOS for coursework
 
 ## Branches
 ### Current Branch
-* branch_ver-1.5.3 (03/06/2019)
+* master (03/07/2019)
  
-### History 
+### History
+* master merged with branch_ver-1.5.3 (03/07/2019) 
 * master merged with branch_ver-1.5.2 (02/27/2019)
 * master merged with branch_ver-1.5.1 (02/25/2019)
 
@@ -30,9 +31,6 @@ https://github.com/adimalla/RTOS_6314
 Date:02/26/2019
 * Cursor Bug
 
-Date:02/26/2019
-* Possible bug: 'lengthyfn()' thread takking too long
-* Cursor Bug
 
 
 
