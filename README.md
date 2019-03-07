@@ -12,7 +12,11 @@ RTOS for coursework
 ## github repo
 https://github.com/adimalla/RTOS_6314
 
-## Change log and versions 
+## Change log and versions
+#### Date:03/06/2019
+* step 13, preemptive scheduler support implemented
+* step 9, modified to add round-robin and priority scheduling selection, confirmation pending 
+
 #### Date:02/27/2019
 * Lengthyfn() taking too long bug removed
 * Confirmation of priorties working correctly, previously there was a problem
