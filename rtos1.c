@@ -459,7 +459,7 @@ int rtosScheduler()
             }
         }
         // Round-Robin Scheduling
-        if(scheduler.priorityEnable == 0)
+        else
         {
             ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
         }
@@ -630,7 +630,7 @@ void pendSvIsr(void)
 
     }
 
-    if(tcb[taskCurrent].state == STATE_UNRUN)// unrun
+    else if(tcb[taskCurrent].state == STATE_UNRUN)// unrun
     {
         tcb[taskCurrent].state = STATE_READY;
         setStackPt(tcb[taskCurrent].sp);
@@ -1738,7 +1738,7 @@ void partOfLengthyFn()
     yield();
 }
 
-uint16_t loop;
+
 
 void lengthyFn()
 {
@@ -1746,15 +1746,12 @@ void lengthyFn()
     while(true)
     {
         wait(resource);
-
-        for (loop = 0; loop < 5000; loop++)
+        for (i = 0; i < 5000; i++)
         {
             partOfLengthyFn();
         }
         RED_LED ^= 1;
         post(resource);
-
-
     }
 }
 
