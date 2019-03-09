@@ -198,7 +198,6 @@ struct _tcb
     char name[16];                   // name of task used in ps command
     void *semaphore;                 // pointer to the semaphore that is blocking the thread
     int8_t skipCount;
-    char taskName[16];
 
 } tcb[MAX_TASKS];
 
@@ -315,14 +314,6 @@ struct osScheduler scheduler;
 
 //*************************** Structs ************************************//
 
-typedef struct test_modes
-{
-    uint8_t commands;
-    uint8_t onboard_test;
-    uint8_t external_hw_test;
-
-}test_modes_type;
-
 
 //*****************************************************************************//
 //                                                                             //
@@ -360,6 +351,7 @@ void extern_mods_test_commands(void);
 //Project Command Functions
 void project_info(void);
 void TIVA_shell(void);
+void taskPid(void);
 
 
 //Buffer Reset Control Functions
@@ -391,7 +383,7 @@ uint8_t args_str     = 0;                                                       
 uint8_t args_updated = 0;                                                          // Variable for indexing final number of arguments, not initialized to zero
 
 // Struct variables
-test_modes_type testMode;
+
 
 // Test Variables
 uint32_t* tcb_stackPT;
@@ -519,7 +511,7 @@ bool createThread(_fn fn, char name[], int priority)
             tcb[i].priority = priority;                         // Set the priority as received priority as argument
             tcb[i].currentPriority = priority;                  // Used in priority inversion
             tcb[i].skipCount = 0;                               // Initial skip count is 0 for all tasks
-            uSTRCPY(tcb[i].taskName, name);                     // Store the name of the task
+            uSTRCPY(tcb[i].name, name);                     // Store the name of the task
 
             // increment task count
             taskCount++;
@@ -594,10 +586,11 @@ void systickIsr(void)
     {
         if(tcb[i].state == STATE_DELAYED)
         {
-            tcb[i].ticks--;
 
             if(tcb[i].ticks == 0)
                 tcb[i].state = STATE_READY;
+
+            tcb[i].ticks--;
         }
     }
 
@@ -1076,10 +1069,6 @@ void command_line(void)
             }
         }
 
-        // Check for upper case characters
-        if (char_input >= 65 && char_input <= 90)
-            string[char_count++] = char_input + 32;
-
         else
             string[char_count++] = char_input;
 
@@ -1174,7 +1163,7 @@ void parse_string(void)
     //Convert character into string blocks and tokenize these blocks with delimiters
     for (i = 0; i <= uSTRLEN(string); i++)
     {
-        if (string[i]== ' '|| string[i] == '\0' || string[i] == 9 || DELIMS)
+        if (string[i]== ' '|| string[i] == '\0' || string[i] == 9)
         {
             new_string[args_no][args_str] = 0;
             args_no++;
@@ -1281,92 +1270,7 @@ int8_t is_command(char* command, uint8_t command_arg)
 //                                                                             //
 //*****************************************************************************//
 
-void test_commands(void)
-{
-    // LED commands Test //
 
-    //Check arguments for string = set
-    if (is_command("set", 2) == 1)
-    {
-        // Compare received string and then turn on Green Led
-        if ( (uSTRCMP(new_string[1], "green") == 0) && (uSTRCMP(new_string[2], "on") == 0) )
-        {
-            putsUart0("!! Green on !! \n\r");
-            ONBOARD_GREEN_LED= 1;                       // Turn Green Led on
-        }
-
-        // Compare received string and then turn on Red Led
-        else if ( (uSTRCMP(new_string[1], "red") == 0) && (uSTRCMP(new_string[2], "on") == 0) )
-        {
-            putsUart0("!! Red on !! \n\r");
-            ONBOARD_RED_LED   = 1;                       // Turn Red Led on
-        }
-
-        // Compare received string and then turn On Blue Led
-        else if ( (uSTRCMP(new_string[1], "blue") == 0) && (uSTRCMP(new_string[2], "on") == 0) )
-        {
-            putsUart0("!! Blue on !! \n\r");
-            ONBOARD_BLUE_LED  = 1;                       // Turn Blue on
-        }
-
-        // Compare received string and then turn off Red led
-        else if ( (uSTRCMP(new_string[1], "red") == 0) && (uSTRCMP(new_string[2], "off") == 0) )
-        {
-            putsUart0("!! Red off !! \n\r");
-            ONBOARD_RED_LED   = 0;                       // Turn Red Led on
-        }
-
-        // Compare received string and then turn off Blue led
-        else if ( (uSTRCMP(new_string[1], "blue") == 0) && (uSTRCMP(new_string[2], "off") == 0) )
-        {
-            putsUart0("!! Blue off !! \n\r");
-            ONBOARD_BLUE_LED   = 0;                      // Turn Blue Led on
-        }
-
-        // Compare received string and then turn off Green led
-        else if ( (uSTRCMP(new_string[1], "green") == 0) && (uSTRCMP(new_string[2], "off") == 0) )
-        {
-            putsUart0("!! Green off !! \n\r");
-            ONBOARD_GREEN_LED  = 0;                     // Turn Green Led on
-        }
-
-        else
-        {
-            putsUart0("Wrong arguments for \"set\" \r\n");
-
-        }
-
-    }
-    else if (is_command("set", 2) == -1)
-    {
-        putsUart0("\"Set\" Command takes 2 arguments \r\n");
-
-    }
-#ifdef DEBUG
-    else
-    {
-        putsUart0("Else condition of \"set\", command not called \r\n");
-
-    }
-#endif
-
-
-    // Turn off all ports
-    if (uSTRCMP(new_string[0], "off") == 0)
-    {
-        GPIO_PORTF_DATA_R &= ~(0xFF);                          //
-
-    }
-
-    // Clear the Terminal Screen
-    if (uSTRCMP(new_string[0], "clear") == 0)
-    {
-        clear_screen();                                        // Call Clear Screen Function
-        putsUart0("Screen Cleared \r\n");                      // Print to tell user that screen is cleared
-    }
-
-
-}
 
 
 
@@ -1535,12 +1439,15 @@ void TIVA_shell(void)
     //********************************************* pidof command ************************************************//
     if (is_command("pidof", 1) == 1)
     {
-        putsUart0("pidof <thread name> \r\n");
+
+        taskPid();
 
     }
     else if (is_command("pidof", 1) == -1)
     {
-        putsUart0("\"pidof\" command requires only 1 argument \r\n");
+        putsUart0("\r\n");
+        putsUart0("ERROR:\"pidof\" Argument Missing, USAGE: pidof [\"thread name\"] \r\n");
+        putsUart0("\r\n");
     }
 
 
@@ -1610,45 +1517,23 @@ void TIVA_shell(void)
 
     }
 
+}
 
-    //************************************************ System test functions ************************************//
 
-    if(is_command("test", 1) == 1)
+void taskPid(void)
+{
+    uint8_t taskNo  = 0;
+    uint8_t taskFound = 0;
+
+    for(taskNo=0; taskNo< MAX_TASKS; taskNo++)
     {
-        if ( uSTRCMP(new_string[1], "hardware") == 0 )
+        if(uSTRCMP(new_string[1], tcb[taskNo].name) == 0)
         {
+            //putsUart0("Task found \r\n");
+            putnUart0((uint32_t)tcb[taskNo].pid);
             putsUart0("\r\n");
-            putsUart0("System Test Begin \r\n");
-            testMode.external_hw_test = 1;
         }
-        else if( uSTRCMP(new_string[1], "commands") == 0 )
-        {
-            putsUart0("\r\n");
-            putsUart0("Command Test Begin, parsed strings will be displayed \r\n");
-            testMode.commands = 1;
-        }
-        else if( uSTRCMP(new_string[1], "suspend") == 0 )
-        {
-            putsUart0("\r\n");
-            putsUart0("Testing mode deactivated \r\n");
-            testMode.commands = 0;
-            testMode.external_hw_test = 0;
-        }
-        else
-        {
-            putsUart0("Wrong Argument for \"test\" \r\n");
-        }
-
     }
-    else if(is_command("test", 1) == -1)
-    {
-        putsUart0("ERROR:\"test\" Command takes an argument \r\n");
-    }
-    else
-    {
-        //do nothing
-    }
-
 
 }
 
@@ -1895,9 +1780,8 @@ int main(void)
     ok  = createThread(idle, "Idle", 7);
 
     // Create Other Tasks
-
     ok &= createThread(lengthyFn, "LengthyFn", 4);
-    ok &= createThread(flash4Hz,"Flash4hz", 0);
+    ok &= createThread(flash4Hz,"Flash4Hz", 0);
     ok &= createThread(oneshot, "OneShot", -4);
     ok &= createThread(readKeys, "ReadKeys", 4);
     ok &= createThread(debounce, "Debounce", 4);
