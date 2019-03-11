@@ -355,6 +355,7 @@ int8_t is_command(char* command, uint8_t arg);
 
 //Project Command Functions
 void project_info(void);
+int8_t command_search(void);
 void TIVA_shell(void);
 void getTaskPid(void);
 void getProcessStatus(void);
@@ -1424,6 +1425,30 @@ void project_info(void)
 
 }
 
+char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help"};
+
+int8_t command_search(void)
+{
+    uint32_t lkp = 0;
+    bool cmdFound = false;
+
+    for(lkp=0; lkp < (sizeof(cmd_DB) / sizeof (cmd_DB[0])); lkp++)
+    {
+        if(uSTRCMP(cmd_DB[lkp], new_string[0])== 0)
+        {
+            cmdFound = true;
+            return 1;
+        }
+    }
+    if(!cmdFound)
+    {
+        putsUart0(new_string[0]);
+        putsUart0(":Command Not Found \r\n");
+        return -1;
+    }
+
+    return 0;
+}
 
 void TIVA_shell(void)
 {
@@ -1436,6 +1461,29 @@ void TIVA_shell(void)
     {
         clear_screen();                                        // Call Clear Screen Function
         putsUart0("Screen Cleared \r\n");                      // Print to tell user that screen is cleared
+    }
+
+    //************************************** Help (list commands) **********************************************//
+    if(is_command("help", 0) == 1)
+    {
+        putsUart0("\r\n");
+        putsUart0("List of available commands:- \r\n");
+        putsUart0("\r\n");
+
+        putsUart0("ps      : Display Process Status \r\n");
+        putsUart0("sched   : [rr],[priority]        \r\n");
+        putsUart0("echo    : [args....]             \r\n");
+        putsUart0("reboot  : System Reboot          \r\n");
+        putsUart0("clear   : Clear Terminal Screen  \r\n");
+        putsUart0("preempt : [on/off]               \r\n");
+        putsUart0("pidof   : [\"task name\"]        \r\n");
+        putsUart0("ipcs    : none                   \r\n");
+        putsUart0("kill    : [PID]                  \r\n");
+
+    }
+    else if(is_command("info",0) == -1)
+    {
+        putsUart0("ERROR:\"help\" Command takes no argument \r\n");
     }
 
 
@@ -1482,7 +1530,7 @@ void TIVA_shell(void)
     }
     else if (is_command("ps", 0) == -1)
     {
-        putsUart0("\"ps\" command requires no arguments \r\n");
+        putsUart0("ERROR:\"ps\" no arguments required \r\n");
     }
 
 
@@ -1492,6 +1540,7 @@ void TIVA_shell(void)
     {
         uint32_t rec_pid = atoi(new_string[1]);
         bool notFound = true;
+
         // Protect Shell from being terminated by user
         for(i = 0; i<MAX_TASKS; i++)
         {
@@ -1517,6 +1566,7 @@ void TIVA_shell(void)
         {
             putsUart0("\r\n");
             putsUart0("ERROR:Task Not Found, USAGE: kill [PID] \r\n");
+            putsUart0("Run Command \"ps\" for PID list of running Tasks \r\n");
         }
 
     }
@@ -1536,7 +1586,7 @@ void TIVA_shell(void)
         putcUart0(98);
 
     }
-    else if (is_command("ps", 0) == -1)
+    else if (is_command("ipcs", 0) == -1)
     {
         putsUart0("\"ipcs\" command requires no arguments \r\n");
     }
@@ -1901,7 +1951,10 @@ void shell()
 
         parse_string();
 
-        TIVA_shell();
+        if(command_search() == 1)
+        {
+            TIVA_shell();
+        }
 
         reset_buffer();
 
