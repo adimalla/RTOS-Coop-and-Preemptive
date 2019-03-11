@@ -78,7 +78,7 @@
 // Version 1.5.4 -(03/11/2019)
 // info:
 //      - preempt and sched function working, (round-robin and priority scheduling selection working confirmed)
-//      - destroythread() working and confirmed
+//      - destroythread() working and confirmed, with semaphore handling
 //      - Shell protected from being killed
 //
 // Version 1.5.3 -(03/06/2019)
@@ -1054,7 +1054,7 @@ void putnUart0(uint32_t Number)
         Remainder = TempVar % 10;
         TempVar   = TempVar / 10;
 
-        // Increment remainder by ASCII value of 0, see table
+        // Increment remainder by ASCII value of 0=(48), see table
         NumBuff[Count--] = Remainder + 48;
     }
 
@@ -1068,7 +1068,7 @@ void putnUart0(uint32_t Number)
 }
 
 // Blocking Function for getting the input as string once the buffer is not empty,
-// Checks for max string size of 80 characters, Backspace, Uppercase characters and
+// Checks for max string size of 80 characters, Backspace, and
 // Terminates function when Carriage return is received.
 void command_line(void)
 {
@@ -1491,14 +1491,15 @@ void TIVA_shell(void)
     if (is_command("kill", 1) == 1)
     {
         uint32_t rec_pid = atoi(new_string[1]);
-
+        bool notFound = true;
         // Protect Shell from being terminated by user
         for(i = 0; i<MAX_TASKS; i++)
         {
-            if(tcb[i].pid == (_fn)rec_pid)
+            if(tcb[i].pid == (_fn)rec_pid && tcb[i].pid > 0)
             {
                 if(uSTRCMP(tcb[i].name, "Shell") == 0)
                 {
+                    notFound = false;
                     putsUart0("\r\n");
                     putsUart0("ERROR: Permission Denied, Shell cannot be Killed \r\n");
                     putsUart0("\r\n");
@@ -1506,23 +1507,23 @@ void TIVA_shell(void)
                 }
                 else
                 {
+                    notFound = false;
                     destroyThread((_fn)rec_pid);
+                    break;
                 }
             }
-            else
-            {
-                putsUart0("\r\n");
-                putsUart0("ERROR: Task not found, USAGE: kill [pid] \r\n");
-                putsUart0("\r\n");
-                break;
-            }
+        }
+        if(notFound)
+        {
+            putsUart0("\r\n");
+            putsUart0("ERROR:Task Not Found, USAGE: kill [PID] \r\n");
         }
 
     }
     else if (is_command("kill", 1) == -1)
     {
         putsUart0("\r\n");
-        putsUart0("ERROR:\"kill\" Argument Missing, USAGE: kill [pid] \r\n");
+        putsUart0("ERROR:\"kill\" Argument Missing, USAGE: kill [PID] \r\n");
         putsUart0("\r\n");
     }
 
