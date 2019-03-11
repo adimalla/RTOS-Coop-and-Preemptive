@@ -28,6 +28,9 @@ https://github.com/adimalla/RTOS_6314
 * All threads along with shell/cli added.
 
 ## Bugs
+Date:03/09/2019
+* flas4hz bug removed.
+
 Date:03/07/2019
 * flash4hz process delayed after 10 minutes, tcb[i].tick becomes max of uint32_t
 
