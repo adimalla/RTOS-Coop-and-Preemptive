@@ -133,8 +133,8 @@
 //*****************************************************************************//
 
 #include <stdint.h>
-#include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "tm4c123gh6pm.h"
 
 
@@ -159,6 +159,7 @@ uint8_t readPbs(void);
 // semaphore
 #define MAX_SEMAPHORES 5
 #define MAX_QUEUE_SIZE 5
+
 
 struct semaphore
 {
@@ -208,6 +209,7 @@ enum svc_cases
     svcSLEEP = 101,                  // Value of switch label in switch case
     svcWAIT  = 102,                  // Value of wait label in switch case
     svcPOST  = 103,                  // Value of post label in switch case
+    svcKILL  = 104,
 };
 
 uint32_t* SystemStackPt;             // Pointer to the Main Stack pointer
@@ -223,6 +225,8 @@ struct osScheduler
 
 struct osScheduler scheduler;
 
+// Loop Variables
+uint8_t i, j = 0; //used in svcisr
 
 //*****************************************************************************//
 //                                                                             //
@@ -234,14 +238,6 @@ struct osScheduler scheduler;
 //*******************Debug and Code test defines**********************//
 #ifndef DEBUG
 //#define DEBUG
-#endif
-
-#ifndef TEST
-//#define TEST
-#endif
-
-#ifndef EXP
-//#define EXP
 #endif
 
 
@@ -312,6 +308,14 @@ struct osScheduler scheduler;
 #define ARGS_CHECK(num)           (args_updated < num || args_updated > num)
 
 
+// VT 100 escape sequence defines
+#define __CLEAR__LINE__              (const char*)("\033[2K")
+#define __RESTORE__CURSOR__POS__     (const char*)("\0338")
+#define __SAVE__CURSOR__POS__        (const char*)("\0337")
+#define __CURSOR__BACK__             (const char*)("\033[D")
+#define __CURSOR__RIGHT__            (const char*)("\033[C")
+
+
 //*************************** Structs ************************************//
 
 
@@ -322,7 +326,6 @@ struct osScheduler scheduler;
 //*****************************************************************************//
 
 //Delay and Blocking Functions
-uint8_t waitPbPress(void);
 void waitMicrosecond(uint32_t us);
 
 
@@ -333,6 +336,7 @@ char getcUart0(void);
 void putnUart0(uint32_t Number);
 void clear_screen(void);
 void command_line(void);
+void set_cursor(uint32_t Line, uint32_t Cols);
 
 
 //String functions
@@ -343,15 +347,11 @@ void parse_string(void);
 int8_t is_command(char* command, uint8_t arg);
 
 
-// test command function
-void test_commands(void);
-void extern_mods_test_commands(void);
-
-
 //Project Command Functions
 void project_info(void);
 void TIVA_shell(void);
-void taskPid(void);
+void getTaskPid(void);
+void getProcessStatus(void);
 
 
 //Buffer Reset Control Functions
@@ -386,8 +386,7 @@ uint8_t args_updated = 0;                                                       
 
 
 // Test Variables
-uint32_t* tcb_stackPT;
-uint32_t* updated_stackPT;
+
 
 
 //-----------------------------------------------------------------------------
@@ -425,7 +424,9 @@ int rtosScheduler()
 {
     bool ok;
     static uint8_t task = 0xFF;
+
     ok = false;
+
     while (!ok)
     {
         task++;
@@ -433,16 +434,15 @@ int rtosScheduler()
             task = 0;
 
         // Priority Scheduling
-        if(scheduler.priorityEnable == 1)
+        if(scheduler.priorityEnable ==1)
         {
-            if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)                   // Skip only if the tasks are ready or unrun and not in blocked state
+            if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)
             {
                 if(tcb[task].skipCount < tcb[task].currentPriority + 8)
                 {
                     tcb[task].skipCount++;
                     ok = false;
                 }
-
                 else if(tcb[task].skipCount >= tcb[task].currentPriority + 8)
                 {
                     tcb[task].skipCount = 0;
@@ -453,10 +453,12 @@ int rtosScheduler()
         // Round-Robin Scheduling
         else
         {
+            tcb[task].skipCount = 0;
             ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
         }
 
     }
+
     return task;
 }
 
@@ -471,15 +473,12 @@ void rtosStart()
 
     taskCurrent = rtosScheduler();
 
-    //tcb_stackPT = tcb[taskCurrent].sp;
-
     setStackPt(tcb[taskCurrent].sp);
-
-    //updated_stackPT = getStackPt();
 
     fn = (_fn)tcb[taskCurrent].pid;
 
     tcb[taskCurrent].state = STATE_READY;
+
     (*fn)();
 
 }
@@ -497,7 +496,7 @@ bool createThread(_fn fn, char name[], int priority)
         // make sure fn not already in list (prevent re-entrancy)
         while (!found && (i < MAX_TASKS))
         {
-            found = (tcb[i++].pid ==  fn);
+            found = (tcb[i++].pid == fn);
         }
         if (!found)
         {
@@ -511,10 +510,11 @@ bool createThread(_fn fn, char name[], int priority)
             tcb[i].priority = priority;                         // Set the priority as received priority as argument
             tcb[i].currentPriority = priority;                  // Used in priority inversion
             tcb[i].skipCount = 0;                               // Initial skip count is 0 for all tasks
-            uSTRCPY(tcb[i].name, name);                     // Store the name of the task
+            uSTRCPY(tcb[i].name, name);                         // Store the name of the task
 
             // increment task count
             taskCount++;
+
             ok = true;
         }
     }
@@ -526,6 +526,7 @@ bool createThread(_fn fn, char name[], int priority)
 // REQUIRED: remove any pending semaphore waiting
 void destroyThread(_fn fn)
 {
+    __asm(" SVC #104");
 }
 
 // REQUIRED: modify this function to set a thread priority
@@ -548,9 +549,7 @@ struct semaphore* createSemaphore(uint8_t count)
 // push registers, call scheduler, pop registers, return to new function
 void yield()
 {
-    //putsUart0("yield\r\n");
     __asm(" SVC #100");
-
 }
 
 // REQUIRED: modify this function to support 1ms system timer
@@ -704,7 +703,8 @@ uint32_t ret_R2(void)
     return 0;
 }
 
-uint8_t i, j = 0;
+uint32_t task_pid = 0;
+
 // REQUIRED: modify this function to add support for the service call
 // REQUIRED: in preemptive code, add code to handle synchronization primitives
 void svCallIsr(void)
@@ -780,6 +780,22 @@ void svCallIsr(void)
                      }
                  }
                  //NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                  // optional
+                 break;
+
+    case svcKILL:
+                 task_pid = R0;
+                 for(i=0; i<MAX_TASKS; i++)
+                 {
+                     if(task_pid == (uint32_t)tcb[i].pid || task_pid + 1 == (uint32_t)tcb[i].pid)
+                     {
+                         tcb[i].state = STATE_INVALID;
+                         tcb[i].pid   = 0;
+                         task_pid = 0;
+                         taskCount--;
+                         break;
+                     }
+                 }
+
                  break;
 
 
@@ -877,7 +893,6 @@ void initHw()
 //*****************************************************************************//
 
 
-
 //micro second delay function
 void waitMicrosecond(uint32_t us)
 {
@@ -894,18 +909,6 @@ void waitMicrosecond(uint32_t us)
     __asm("WMS_DONE0:"                     );
 }
 
-// Blocking function that returns only when SW1 is pressed
-uint8_t waitPbPress(void)
-{
-    if (ONBOARD_PUSH_BUTTON)
-        return 0;
-
-    else
-    {
-        waitMicrosecond(50000);
-        return 1;
-    }
-}
 
 
 //*****************************************************************************//
@@ -918,9 +921,9 @@ uint8_t waitPbPress(void)
 // Blocking function that writes a serial character when the UART buffer is not full
 void putcUart0(const char c)
 {
-    //while (UART0_FR_R & UART_FR_TXFF);
+    while (UART0_FR_R & UART_FR_TXFF);
     UART0_DR_R = c;
-    yield();
+    //yield();
 }
 
 // Blocking function that writes a string when the UART buffer is not full
@@ -1094,6 +1097,27 @@ void clear_screen(void)
     putsUart0("\033[2J\033[H");         //ANSI VT100 escape sequence, clear screen and set cursor to home.
 }
 
+// Function for setting the cursor
+void set_cursor(uint32_t Line, uint32_t Cols)
+{
+    putcUart0('\033');
+    putcUart0('[');
+    putnUart0(Line);
+    putcUart0(';');
+    putnUart0(Cols);
+    putcUart0('H');
+
+}
+
+void mov_right(uint16_t val)
+{
+    putcUart0('\033');
+    putcUart0('[');
+    putnUart0(val);
+    putcUart0('C');
+}
+
+
 
 //*****************************************************************************//
 //                                                                             //
@@ -1264,15 +1288,6 @@ int8_t is_command(char* command, uint8_t command_arg)
 }
 
 
-//*****************************************************************************//
-//                                                                             //
-//                     USER TEST FUNCTIONS                                     //
-//                                                                             //
-//*****************************************************************************//
-
-
-
-
 
 //*****************************************************************************//
 //                                                                             //
@@ -1350,6 +1365,7 @@ void project_info(void)
 
 void TIVA_shell(void)
 {
+    uint32_t i = 0;
 
     //************************************* Clear the Terminal Screen ******************************************//
 
@@ -1400,8 +1416,7 @@ void TIVA_shell(void)
     //*************************************** process status command *******************************************//
     if (is_command("ps", 0) == 1)
     {
-        putsUart0("Process Status \r\n");
-
+        getProcessStatus();
     }
     else if (is_command("ps", 0) == -1)
     {
@@ -1413,12 +1428,32 @@ void TIVA_shell(void)
     //******************************************** kill command *************************************************//
     if (is_command("kill", 1) == 1)
     {
-        putsUart0("kill <pid> \r\n");
+        uint32_t rec_pid = atoi(new_string[1]);
+
+        for(i = 0; i<MAX_TASKS; i++)
+        {
+            if(tcb[i].pid == (_fn)rec_pid)
+            {
+                if(uSTRCMP(tcb[i].name, "Shell") == 0)
+                {
+                    putsUart0("ERROR: Permission Denied, Shell cannot be Killed \r\n");
+                    break;
+                }
+                else
+                {
+                    destroyThread((_fn)rec_pid);
+                }
+            }
+
+        }
+
 
     }
     else if (is_command("kill", 1) == -1)
     {
-        putsUart0("\"kill\" command requires only 1 argument \r\n");
+        putsUart0("\r\n");
+        putsUart0("ERROR:\"kill\" Argument Missing, USAGE: kill [pid] \r\n");
+        putsUart0("\r\n");
     }
 
 
@@ -1426,7 +1461,8 @@ void TIVA_shell(void)
     //******************************************** ipcs command *************************************************//
     if (is_command("ipcs", 0) == 1)
     {
-        putsUart0("Interprocess comm. \r\n");
+        putsUart0("Interprocess comm.\r\n");
+        putcUart0(98);
 
     }
     else if (is_command("ps", 0) == -1)
@@ -1439,9 +1475,7 @@ void TIVA_shell(void)
     //********************************************* pidof command ************************************************//
     if (is_command("pidof", 1) == 1)
     {
-
-        taskPid();
-
+        getTaskPid();
     }
     else if (is_command("pidof", 1) == -1)
     {
@@ -1493,8 +1527,6 @@ void TIVA_shell(void)
         putsUart0(" \r\n");
         putsUart0("System Reboot \r\n");
 
-        waitMicrosecond(1000000);
-
         NVIC_APINT_R = 0x04 | (0x05FA << 16);
 
     }
@@ -1506,7 +1538,6 @@ void TIVA_shell(void)
 
     //************************************************* USER IO (echo) ********************************************//
 
-    int i = 0;
     if ((uSTRCMP(new_string[0], "echo") == 0))
     {
         for (i = 1; i < args_updated; i++)
@@ -1520,17 +1551,76 @@ void TIVA_shell(void)
 }
 
 
-void taskPid(void)
+void getTaskPid(void)
 {
-    uint8_t taskNo  = 0;
-    uint8_t taskFound = 0;
+    uint8_t taskNo = 0;
 
-    for(taskNo=0; taskNo< MAX_TASKS; taskNo++)
+    for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
     {
         if(uSTRCMP(new_string[1], tcb[taskNo].name) == 0)
         {
             //putsUart0("Task found \r\n");
             putnUart0((uint32_t)tcb[taskNo].pid);
+            putsUart0("\r\n");
+        }
+    }
+
+}
+
+void getProcessStatus(void)
+{
+    uint8_t taskNo = 0;
+    uint8_t len_diff = 0;
+    char stateName[10] = {0};
+
+
+    putsUart0("PID");putsUart0("    Task Name");putsUart0("   CPU%");putsUart0("    STATE\r\n");
+    for(taskNo=0; taskNo < MAX_TASKS; taskNo++)
+    {
+        if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))
+        {
+            putnUart0((uint32_t)tcb[taskNo].pid);putsUart0("   ");putsUart0(tcb[taskNo].name);
+
+            len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));
+            //putnUart0(len_diff);
+            mov_right(len_diff+3);
+
+            putnUart0(0);
+            putnUart0(0);
+            putnUart0(0);
+
+            //parse state names
+            switch(tcb[taskNo].state)
+            {
+            case 0:
+                uSTRCPY(stateName, "INVALID");
+                break;
+
+            case 1:
+                uSTRCPY(stateName, "UNRUN");
+                break;
+
+            case 2:
+                uSTRCPY(stateName, "READY");
+                break;
+
+            case 3:
+                uSTRCPY(stateName, "DELAYED");
+                break;
+
+            case 4:
+                uSTRCPY(stateName, "BLOCKED");
+                break;
+
+            default:
+                break;
+            }
+
+
+            mov_right(5);
+
+            putsUart0(stateName);
+
             putsUart0("\r\n");
         }
     }
@@ -1682,7 +1772,7 @@ void readKeys()
         }
         if ((buttons & 8) != 0)
         {
-            //destroyThread(flash4Hz);
+            destroyThread(flash4Hz);
         }
         if ((buttons & 16) != 0)
         {
@@ -1742,6 +1832,7 @@ void shell()
 
         reset_buffer();
 
+        yield();
     }
 }
 
