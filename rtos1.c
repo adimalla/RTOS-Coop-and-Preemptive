@@ -1423,6 +1423,10 @@ void project_info(void)
     putsUart0("\033[33;1m!! This Program requires Local Echo, please enable Local Echo from settings !!\033[0m \r\n");     // Foreground color:Yellow
     putsUart0("\r\n");
 
+    putsUart0("\r\n");
+    putsUart0("TIP:Type \"help\" to list available commands \r\n");
+    putsUart0("\r\n");
+
 }
 
 char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help"};
