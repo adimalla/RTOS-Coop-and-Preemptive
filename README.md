@@ -14,6 +14,11 @@ RTOS for coursework
 https://github.com/adimalla/RTOS_6314
 
 ## Change log and versions
+#### Date:03/11/2019
+* preempt and sched function working, (round-robin and priority scheduling selection working confirmed)
+* destroythread() working and confirmed, with semaphore handling
+* Shell protected from being killed
+
 #### Date:03/06/2019
 * step 13, preemptive scheduler support implemented
 * step 9, modified to add round-robin and priority scheduling selection, confirmation pending 
