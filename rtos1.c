@@ -14,7 +14,7 @@
 // System Clock    : 40 MHz                                                     //
 // UART Baudrate   : 115200                                                     //
 // Data Length     : 8 Bits                                                     //
-// Version         : 1.5.3                                                      //
+// Version         : 1.5.4                                                      //
 // Version Control : GIT                                                        //
 //                                                                              //
 // Hardware configuration:                                                      //
@@ -74,6 +74,12 @@
 
 
 //*********** Versions ***************//
+//
+// Version 1.5.4 -(03/11/2019)
+// info:
+//      - preempt and sched function working, (round-robin and priority scheduling selection working confirmed)
+//      - destroythread() working and confirmed
+//      - Shell protected from being killed
 //
 // Version 1.5.3 -(03/06/2019)
 // info:
@@ -1347,7 +1353,7 @@ void project_info(void)
 {
     putsUart0("\033]2;| Name:Aditya Mall | (c) 2019 |\007");                                                               // Window Title Information
     putsUart0("\033]10;#FFFFFF\007");                                                                                      // Text Color (RGB)
-    //putsUart0("\033]11;#E14141\007");                                                                                      // Background Color (RGB)
+    //putsUart0("\033]11;#E14141\007");                                                                                    // Background Color (RGB)
 
     putsUart0("\r\n");
     putsUart0("Project: RTOS for EK-TM4C123GXL Evaluation Board.\r\n");                                                    // Project Name
@@ -1358,7 +1364,6 @@ void project_info(void)
     putsUart0("\r\n");
     putsUart0("\033[33;1m!! This Program requires Local Echo, please enable Local Echo from settings !!\033[0m \r\n");     // Foreground color:Yellow
     putsUart0("\r\n");
-
 
 }
 
