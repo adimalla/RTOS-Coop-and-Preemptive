@@ -3,9 +3,10 @@ RTOS for coursework
 
 ## Branches
 ### Current Branch
-* branch_ver-1.5.4 (03/07/2019)
+* master (03/11/2019)
  
 ### History
+* master merged with branch_ver-1.5.4 (03/11/2019) 
 * master merged with branch_ver-1.5.3 (03/07/2019) 
 * master merged with branch_ver-1.5.2 (02/27/2019)
 * master merged with branch_ver-1.5.1 (02/25/2019)
@@ -41,7 +42,5 @@ Date:03/07/2019
 
 Date:02/26/2019
 * Cursor Bug
-
-
 
 
