@@ -4,7 +4,7 @@
 //******************************************************************************//
 // File            : main.c                                                     //
 // Author          : Aditya Mall                                                //
-// Date            : 02/26/2019                                                 //
+// Date            : 03/13/2019                                                 //
 // Copyright       : (c) 2019, Aditya Mall, Mentor: Dr. Jason Losh,             //
 //                   The University of Texas at Arlington.                      //
 // Project         : RTOS Framework EK-TM4C123GXL Evaluation Board.             //
@@ -14,7 +14,7 @@
 // System Clock    : 40 MHz                                                     //
 // UART Baudrate   : 115200                                                     //
 // Data Length     : 8 Bits                                                     //
-// Version         : 1.5.5.1                                                    //
+// Version         : 1.5.5.2                                                    //
 // Version Control : GIT                                                        //
 //                                                                              //
 // Hardware configuration:                                                      //
@@ -75,7 +75,7 @@
 
 //*********** Versions ***************//
 //
-//// Version 1.5.5.1 -(03/13/2019)
+// Version 1.5.5.1 -(03/13/2019)
 // info:
 //      - 'ipcs' functionality added.
 //      - Currently testing for tasks failures
@@ -1451,10 +1451,11 @@ void project_info(void)
     //putsUart0("\033]11;#E14141\007");                                                                                    // Background Color (RGB)
 
     putsUart0("\r\n");
-    putsUart0("Project: RTOS for EK-TM4C123GXL Evaluation Board.\r\n");                                                    // Project Name
-    putsUart0("Name   : Aditya Mall \r\n");                                                                                // Author Name
-    putsUart0("Course : EE-6314 \r\n" );                                                                                   // Author ID
-    putsUart0("email  : \033[38;5;51;4maditya.mall@mavs.uta.edu\033[0m \r\n");                                             // Email Info, Foreground color:Cyan
+    putsUart0("Project : RTOS for EK-TM4C123GXL Evaluation Board.\r\n");                                                   // Project Name
+    putsUart0("Name    : Aditya Mall \r\n");                                                                               // Author Name
+    putsUart0("Course  : EE-6314 \r\n" );                                                                                  // Author ID
+    putsUart0("email   : \033[38;5;51;4maditya.mall@mavs.uta.edu\033[0m \r\n");                                            // Email Info, Foreground color:Cyan
+    putsUart0("Version : 1.5.5.2 \r\n");
 
     putsUart0("\r\n");
     putsUart0("\033[33;1m!! This Program requires Local Echo, please enable Local Echo from settings !!\033[0m \r\n");     // Foreground color:Yellow
@@ -1835,31 +1836,34 @@ void getIpcs(void)
     uint8_t taskNo    = 0;
     uint8_t name_len[MAX_SEMAPHORES] = {0};
 
+
+    putsUart0("\r\n");
+
     // Title
     putsUart0("Sem Name"); mov_right(5);putsUart0("Sem Count"); mov_right(3);putsUart0("Queue Size"); mov_right(3);putsUart0("Running");
     mov_right(5);putsUart0("Waiting"); putsUart0("\r\n");
 
 
-    for(semNo=0; semNo < semaphoreCount; semNo++)                                   // Find Max Column Width
-        name_len[semNo] = uSTRLEN(semaphores[semNo].semName);                       // Max length of name = Max Column width
+    for(semNo=0; semNo < semaphoreCount; semNo++)                                                              // Find Max Column Width
+        name_len[semNo] = uSTRLEN(semaphores[semNo].semName);                                                  // Max length of name = Max Column width
 
-    col_width = name_len[0];                                                        // First Value = first element of Array
+    col_width = name_len[0];                                                                                   // First Value = first element of Array
 
-    for(semNo=0; semNo < semaphoreCount; semNo++)                                   // Calculate Max Column Width
+    for(semNo=0; semNo < semaphoreCount; semNo++)                                                              // Calculate Max Column Width
     {
-        if(name_len[semNo] > col_width)                                             // Highest Number in Array
+        if(name_len[semNo] > col_width)                                                                        // Highest Number in Array
             col_width = name_len[semNo];
     }
 
     // Print Data
     for(semNo=0; semNo < semaphoreCount; semNo++)
     {
-        putsUart0(semaphores[semNo].semName);                                       // Print Semaphore Name
+        putsUart0(semaphores[semNo].semName);                                                                  // Print Semaphore Name
         len_diff = 0;
         len_diff = abs(uSTRLEN(semaphores[semNo].semName) - col_width);
 
         mov_right(5 + len_diff);
-        if(semaphores[semNo].count < 10)                                            // Print Semaphore Count
+        if(semaphores[semNo].count < 10)                                                                       // Print Semaphore Count
         {
             putnUart0(0);
             putnUart0(semaphores[semNo].count);
@@ -1870,11 +1874,11 @@ void getIpcs(void)
         }
 
         mov_right(11);
-        putnUart0(0);                                                               // Print Queue Size
+        putnUart0(0);                                                                                           // Print Queue Size
         putnUart0(semaphores[semNo].queueSize);
 
         mov_right(7);
-        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                   // Print Tasks that are running
+        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                                               // Print Tasks that are running
         {
             if(&semaphores[semNo] == tcb[taskNo].semaphore)
             {
@@ -1894,7 +1898,7 @@ void getIpcs(void)
         }
 
         mov_right(3);
-        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                   // Print Tasks that are waiting
+        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                                               // Print Tasks that are waiting
         {
             if(&semaphores[semNo] == tcb[taskNo].semaphore)
             {
@@ -1912,7 +1916,7 @@ void getIpcs(void)
         putsUart0("\r\n");
     }
 
-
+    putsUart0("\r\n");
 }
 
 

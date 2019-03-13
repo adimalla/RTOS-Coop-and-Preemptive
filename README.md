@@ -3,7 +3,7 @@ RTOS for coursework
 
 ## Branches
 ### Current Branch
-* ver-1.5.5.1 (03/13/2019)
+* ver-1.5.5.2 (03/13/2019)
  
 ### History
 * master merged with branch_ver-1.5.4 (03/11/2019) 
