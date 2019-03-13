@@ -1822,7 +1822,7 @@ void getTaskStatus(char *threadName)
     uint8_t taskNo  = 0;
     uint8_t taskFnd = 0;
 
-    putsUart0("Model:381 \r\n");
+    //putsUart0("Model:381 \r\n");
 
     for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
     {
