@@ -15,6 +15,12 @@ RTOS for coursework
 https://github.com/adimalla/RTOS_6314
 
 ## Change log and versions
+
+#### Date:03/13/2019
+#####Version 1.5.5.1
+* 'ipcs' functionality added.
+* Currently testing for tasks failures
+
 #### Date:03/11/2019
 * preempt and sched function working, (round-robin and priority scheduling selection working confirmed)
 * destroythread() working and confirmed, with semaphore handling
