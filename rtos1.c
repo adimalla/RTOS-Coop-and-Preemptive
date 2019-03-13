@@ -14,7 +14,7 @@
 // System Clock    : 40 MHz                                                     //
 // UART Baudrate   : 115200                                                     //
 // Data Length     : 8 Bits                                                     //
-// Version         : 1.5.4                                                      //
+// Version         : 1.5.5                                                      //
 // Version Control : GIT                                                        //
 //                                                                              //
 // Hardware configuration:                                                      //
@@ -169,9 +169,11 @@ uint8_t readPbs(void);
 
 struct semaphore
 {
-    uint16_t count;
-    uint16_t queueSize;
-    uint32_t processQueue[MAX_QUEUE_SIZE]; // store task index here
+    uint16_t count;                          // Store Semaphore count
+    uint16_t queueSize;                      // Store Queue Size
+    char     semName[15];                    // Store Semaphore Name
+    uint32_t semKey;                         // Key to the running task
+    uint32_t processQueue[MAX_QUEUE_SIZE];   // Store PID of blocked waiting task
 
 } semaphores[MAX_SEMAPHORES];
 
@@ -196,15 +198,16 @@ uint32_t stack[MAX_TASKS][256];      // 1024 byte stack for each thread
 
 struct _tcb
 {
-    uint8_t state;                   // see STATE_ values above
-    void *pid;                       // used to uniquely identify thread
-    void *sp;                        // location of stack pointer for thread
-    int8_t priority;                 // -8=highest to 7=lowest
-    int8_t currentPriority;          // used for priority inheritance
-    uint32_t ticks;                  // ticks until sleep complete
-    char name[16];                   // name of task used in ps command
-    void *semaphore;                 // pointer to the semaphore that is blocking the thread
-    int8_t skipCount;
+    uint8_t  state;                   // see STATE_ values above
+    void     *pid;                    // used to uniquely identify thread
+    void     *sp;                     // location of stack pointer for thread
+    int8_t   priority;                // -8=highest to 7=lowest
+    int8_t   currentPriority;         // used for priority inheritance
+    uint32_t ticks;                   // ticks until sleep complete
+    char     name[16];                // name of task used in ps command
+    void     *semaphore;              // pointer to the semaphore that is blocking the thread
+    int8_t   skips;               // Skip count for priority calculations
+    char     threadSemName[15];       // Store Semaphore Name
 
 } tcb[MAX_TASKS];
 
@@ -359,6 +362,8 @@ int8_t command_search(void);
 void TIVA_shell(void);
 void getTaskPid(void);
 void getProcessStatus(void);
+void getIpcs(void);
+void getTaskStatus(char *threadName);
 
 
 //Buffer Reset Control Functions
@@ -394,7 +399,8 @@ uint8_t args_updated = 0;                                                       
 
 // Test Variables
 
-
+//commands
+char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help","statof"};
 
 //-----------------------------------------------------------------------------
 // RTOS Kernel Functions
@@ -407,9 +413,6 @@ void rtosInit()
     // no tasks running
     taskCount = 0;
 
-    // Default State = priority scheduling
-    scheduler.priorityEnable = 1;
-
     // clear out tcb records
     for (i = 0; i < MAX_TASKS; i++)
     {
@@ -420,7 +423,7 @@ void rtosInit()
     // REQUIRED: initialize systick for 1ms system timer
     NVIC_ST_CTRL_R     = 0;                                                                    // Clear Control bit for safe programming
     NVIC_ST_CURRENT_R  = 0;                                                                    // Start Value
-    NVIC_ST_RELOAD_R   = (CLOCKFREQ/SYSTICKFREQ) - 1;                                          // Set for 1Khz
+    NVIC_ST_RELOAD_R   = 0x9C3F;                                                               // Set for 1Khz
     NVIC_ST_CTRL_R     = NVIC_ST_CTRL_CLK_SRC | NVIC_ST_CTRL_INTEN | NVIC_ST_CTRL_ENABLE;      // set for source as clock interrupt enable and enable the timer.
 }
 
@@ -434,6 +437,9 @@ int rtosScheduler()
 
     ok = false;
 
+    // Default State = priority scheduling
+    scheduler.priorityEnable = 1;
+
     while (!ok)
     {
         task++;
@@ -441,18 +447,18 @@ int rtosScheduler()
             task = 0;
 
         // Priority Scheduling
-        if(scheduler.priorityEnable ==1)
+        if(scheduler.priorityEnable == 1)
         {
             if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)
             {
-                if(tcb[task].skipCount < tcb[task].currentPriority + 8)
+                if(tcb[task].skips < tcb[task].currentPriority + 8)
                 {
-                    tcb[task].skipCount++;
-                    ok = false;
+                    tcb[task].skips++;
+                    ///ok = false;
                 }
-                else if(tcb[task].skipCount >= tcb[task].currentPriority + 8)
+                else if(tcb[task].skips >= tcb[task].currentPriority + 8)
                 {
-                    tcb[task].skipCount = 0;
+                    tcb[task].skips = 0;
                     ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
                 }
             }
@@ -460,7 +466,7 @@ int rtosScheduler()
         // Round-Robin Scheduling
         else
         {
-            tcb[task].skipCount = 0;
+            tcb[task].skips = 0;
             ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
         }
 
@@ -516,7 +522,7 @@ bool createThread(_fn fn, char name[], int priority)
             tcb[i].sp = &stack[i][255];                         // Point to the user stack
             tcb[i].priority = priority;                         // Set the priority as received priority as argument
             tcb[i].currentPriority = priority;                  // Used in priority inversion
-            tcb[i].skipCount = 0;                               // Initial skip count is 0 for all tasks
+            tcb[i].skips = 0;                               // Initial skip count is 0 for all tasks
             uSTRCPY(tcb[i].name, name);                         // Store the name of the task
 
             // increment task count
@@ -541,13 +547,17 @@ void setThreadPriority(_fn fn, uint8_t priority)
 {
 }
 
-struct semaphore* createSemaphore(uint8_t count)
+struct semaphore* createSemaphore(char* semName, uint8_t count)
 {
     struct semaphore *pSemaphore = 0;
+
     if (semaphoreCount < MAX_SEMAPHORES)
     {
         pSemaphore = &semaphores[semaphoreCount++];
         pSemaphore->count = count;
+
+        uSTRCPY(pSemaphore->semName, semName);
+
     }
     return pSemaphore;
 }
@@ -590,7 +600,7 @@ void systickIsr(void)
     // sleep function support
     for(taskN=0; taskN < MAX_TASKS; taskN++)
     {
-        if(tcb[taskN].state == STATE_DELAYED)
+        if((tcb[taskN].state == STATE_DELAYED)&& (tcb[taskN].ticks > 0))
         {
 
             tcb[taskN].ticks--;
@@ -598,7 +608,10 @@ void systickIsr(void)
             if(tcb[taskN].ticks == 0)
                 tcb[taskN].state = STATE_READY;
 
-            //tcb[taskN].ticks--;
+        }
+        else if((tcb[taskN].state == STATE_DELAYED)&& (tcb[taskN].ticks == 0))
+        {
+            tcb[taskN].state = STATE_READY;
         }
     }
 
@@ -756,6 +769,7 @@ void svCallIsr(void)
                       SemaphorePt->queueSize++;                                          // Increment the index of the queue for next task
                       tcb[taskCurrent].state     = STATE_BLOCKED;                        // Mark the state of of current task as blocked
                       tcb[taskCurrent].semaphore = SemaphorePt;                          // Store the pointer to semaphore, record the semaphore
+                      SemaphorePt->semKey = (uint32_t)tcb[taskCurrent].pid;
 
                       NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                          // Set pendsv Inside 'else' since we don't have switch task all the time
                   }
@@ -784,7 +798,7 @@ void svCallIsr(void)
                              }
 
                              SemaphorePt->queueSize --;                                  // Decrement Queue Size
-
+                             SemaphorePt->semKey = 0;
                              break;
                          }
                      }
@@ -1142,9 +1156,16 @@ void command_line(void)
         // Check for max buffer size
         if (char_count == MAX_SIZE)
         {
-            putsUart0("\r\nCan't exceed more than 80 chars");    // Let the User know that character count has been exceeded
-            reset_buffer();                                      // Reset the buffer, call function
+            putsUart0("\r\n");
+            putsUart0("\r\nCan't exceed more than 40 characters");    // Let the User know that character count has been exceeded
+            putsUart0("\r\n");
+
+            reset_buffer();                                           // Reset the buffer, call function
+
             *string = 0;
+
+            sleep(500);
+
             break;
         }
 
@@ -1429,7 +1450,6 @@ void project_info(void)
 
 }
 
-char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help"};
 
 int8_t command_search(void)
 {
@@ -1483,6 +1503,7 @@ void TIVA_shell(void)
         putsUart0("pidof   : [\"task name\"]        \r\n");
         putsUart0("ipcs    : none                   \r\n");
         putsUart0("kill    : [PID]                  \r\n");
+
 
     }
     else if(is_command("info",0) == -1)
@@ -1586,8 +1607,7 @@ void TIVA_shell(void)
     //******************************************** ipcs command *************************************************//
     if (is_command("ipcs", 0) == 1)
     {
-        putsUart0("Interprocess comm.\r\n");
-        putcUart0(98);
+        getIpcs();
 
     }
     else if (is_command("ipcs", 0) == -1)
@@ -1673,6 +1693,19 @@ void TIVA_shell(void)
 
     }
 
+
+    //********************************************* statof command ************************************************//
+    if (is_command("statof", 1) == 1)
+    {
+        getTaskStatus(new_string[1]);
+    }
+    else if (is_command("statof", 1) == -1)
+    {
+        putsUart0("\r\n");
+        putsUart0("ERROR:\"statof\" Argument Missing, USAGE: statof [\"thread name\"] \r\n");
+        putsUart0("\r\n");
+    }
+
     //************************************************** TivaShell Function End ************************************************************************//
 }
 
@@ -1697,9 +1730,10 @@ void getProcessStatus(void)
 {
     uint8_t taskNo = 0;
     uint8_t len_diff = 0;
+    char int_buf[3] = {0};
     char stateName[10] = {0};
 
-    putsUart0("PID");putsUart0("    Task Name");putsUart0("   CPU%");putsUart0("    STATE\r\n");
+    putsUart0("PID");putsUart0("    Task Name");putsUart0("    CPU%");putsUart0("    Priority");putsUart0("    STATE\r\n");
 
     for(taskNo=0; taskNo < MAX_TASKS; taskNo++)
     {
@@ -1709,11 +1743,24 @@ void getProcessStatus(void)
 
             len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));
 
-            mov_right(len_diff+3);
+            mov_right(len_diff+4);
 
             putnUart0(0);
             putnUart0(0);
             putnUart0(0);
+
+            mov_right(7);
+
+            if(tcb[taskNo].currentPriority < 0)
+            {
+                ltoa((long)tcb[taskNo].currentPriority,int_buf);
+                putsUart0(int_buf);
+            }
+            else
+            {
+                putnUart0(0);
+                putnUart0(tcb[taskNo].currentPriority);
+            }
 
             //parse state names
             switch(tcb[taskNo].state)
@@ -1742,13 +1789,64 @@ void getProcessStatus(void)
                 break;
             }
 
-            mov_right(5);
+            mov_right(8);
 
             putsUart0(stateName);
 
             putsUart0("\r\n");
         }
     }
+
+}
+
+void getIpcs(void)
+{
+    uint8_t taskNo  = 0;
+
+    for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
+    {
+
+    }
+
+
+}
+
+
+void getTaskStatus(char *threadName)
+{
+    uint8_t taskNo  = 0;
+    uint8_t taskFnd = 0;
+
+    putsUart0("Model:381 \r\n");
+
+    for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
+    {
+        if(uSTRCMP(threadName,tcb[taskNo].name) == 0)
+        {
+            putsUart0("\r\n");
+            putsUart0("Task         : ");
+            putsUart0(threadName);
+            putsUart0("\r\n");
+
+            putsUart0("Sleep Ticks  : ");
+            putnUart0(tcb[taskNo].ticks);
+            putsUart0("\r\n");
+
+            putsUart0("Skips        : ");
+            putnUart0(tcb[taskNo].currentPriority + 8);
+            putsUart0("\r\n");
+
+            putsUart0("Current Skips: ");
+            putnUart0(tcb[taskNo].skips);
+            putsUart0("\r\n");
+
+            taskFnd = 1;
+
+            break;
+        }
+    }
+    if(taskFnd == 0)
+        putsUart0("ERROR:Task Not Found \r\n");
 
 }
 
@@ -1761,29 +1859,19 @@ uint8_t readPbs(void)
     uint8_t retval_button = 0;
 
     if(!PB0)
-    {
         retval_button |= 1;
-    }
 
     if(!PB1)
-    {
         retval_button |= 2;
-    }
 
     if(!PB2)
-    {
         retval_button |= 4;
-    }
 
     if(!PB3)
-    {
         retval_button |= 8;
-    }
 
     if(!PB4)
-    {
         retval_button |= 16;
-    }
 
     return retval_button;
 }
@@ -1943,24 +2031,20 @@ void important()
 
 void shell()
 {
-    // Project Info
+    clear_screen();                      // Clear Screen
 
-    clear_screen();
-
-    project_info();
+    project_info();                      // Display Project Info
 
     while(true)
     {
-        command_line();
+        command_line();                  // Call the command line function for user imput
 
-        parse_string();
+        parse_string();                  // Parse user input
 
-        if(command_search() == 1)
-        {
-            TIVA_shell();
-        }
+        if(command_search() == 1)        // Search for commands entered by user
+            TIVA_shell();                // Execute Commands if found
 
-        reset_buffer();
+        reset_buffer();                  // Clear Buffer before exit
 
         yield();
     }
@@ -1992,10 +2076,10 @@ int main(void)
     waitMicrosecond(250000);
 
     // Initialize semaphores
-    keyPressed  = createSemaphore(1);
-    keyReleased = createSemaphore(0);
-    flashReq    = createSemaphore(5);
-    resource    = createSemaphore(1);
+    keyPressed  = createSemaphore("keyPressed", 1);
+    keyReleased = createSemaphore("keyReleased", 0);
+    flashReq    = createSemaphore("flashReq", 5);
+    resource    = createSemaphore("resource",1);
 
     // Create Idle process
     ok  = createThread(idle, "Idle", 7);
