@@ -34,6 +34,10 @@ https://github.com/adimalla/RTOS_6314
 * All threads along with shell/cli added.
 
 ## Bugs
+
+Date:03/12/2019
+* flash4Hz bug returns, but removed with if else cases in systickISR
+
 Date:03/09/2019
 * flas4hz bug removed.
 

@@ -75,6 +75,11 @@
 
 //*********** Versions ***************//
 //
+// Version 1.5.5 -(03/12/2019)
+// info:
+//      - Flash4Hz ticks overflow bug removed with extra if else cases in systickISR
+//      - 'statof' extra command added for debug purposes (not included in the coursework)
+//
 // Version 1.5.4 -(03/11/2019)
 // info:
 //      - preempt and sched function working, (round-robin and priority scheduling selection working confirmed)
@@ -181,48 +186,48 @@ uint8_t semaphoreCount = 0;
 struct semaphore *keyPressed, *keyReleased, *flashReq, *resource, *SemaphorePt;
 
 // task
-#define STATE_INVALID    0           // no task
-#define STATE_UNRUN      1           // task has never been run
-#define STATE_READY      2           // has run, can resume at any time
-#define STATE_DELAYED    3           // has run, but now awaiting timer
-#define STATE_BLOCKED    4           // has run, but now blocked by semaphore
+#define STATE_INVALID    0                   // no task
+#define STATE_UNRUN      1                   // task has never been run
+#define STATE_READY      2                   // has run, can resume at any time
+#define STATE_DELAYED    3                   // has run, but now awaiting timer
+#define STATE_BLOCKED    4                   // has run, but now blocked by semaphore
 
-#define MAX_TASKS        10          // maximum number of valid tasks
-#define CLOCKFREQ        40000000    // Main Clock/BUS Frequency
-#define SYSTICKFREQ      1000        // Systic timer Frequency
+#define MAX_TASKS        10                  // maximum number of valid tasks
+#define CLOCKFREQ        40000000            // Main Clock/BUS Frequency
+#define SYSTICKFREQ      1000                // Systic timer Frequency
 
-uint8_t taskCurrent = 0;             // index of last dispatched task
-uint8_t taskCount = 0;               // total number of valid tasks
+uint8_t taskCurrent = 0;                     // index of last dispatched task
+uint8_t taskCount = 0;                       // total number of valid tasks
 
-uint32_t stack[MAX_TASKS][256];      // 1024 byte stack for each thread
+uint32_t stack[MAX_TASKS][256];              // 1024 byte stack for each thread
 
 struct _tcb
 {
-    uint8_t  state;                   // see STATE_ values above
-    void     *pid;                    // used to uniquely identify thread
-    void     *sp;                     // location of stack pointer for thread
-    int8_t   priority;                // -8=highest to 7=lowest
-    int8_t   currentPriority;         // used for priority inheritance
-    uint32_t ticks;                   // ticks until sleep complete
-    char     name[16];                // name of task used in ps command
-    void     *semaphore;              // pointer to the semaphore that is blocking the thread
-    int8_t   skips;               // Skip count for priority calculations
-    char     threadSemName[15];       // Store Semaphore Name
+    uint8_t  state;                          // see STATE_ values above
+    void     *pid;                           // used to uniquely identify thread
+    void     *sp;                            // location of stack pointer for thread
+    int8_t   priority;                       // -8=highest to 7=lowest
+    int8_t   currentPriority;                // used for priority inheritance
+    uint32_t ticks;                          // ticks until sleep complete
+    char     name[16];                       // name of task used in ps command
+    void     *semaphore;                     // pointer to the semaphore that is blocking the thread
+    int8_t   skips;                          // Skip count for priority calculations
+    char     threadSemName[15];              // Store Semaphore Name
 
 } tcb[MAX_TASKS];
 
 
 enum svc_cases
 {
-    svcYIELD = 100,                  // Value of yield label in switch case
-    svcSLEEP = 101,                  // Value of switch label in switch case
-    svcWAIT  = 102,                  // Value of wait label in switch case
-    svcPOST  = 103,                  // Value of post label in switch case
+    svcYIELD = 100,                          // Value of yield label in switch case
+    svcSLEEP = 101,                          // Value of switch label in switch case
+    svcWAIT  = 102,                          // Value of wait label in switch case
+    svcPOST  = 103,                          // Value of post label in switch case
     svcKILL  = 104,
 };
 
-uint32_t* SystemStackPt;             // Pointer to the Main Stack pointer
-uint8_t svc_value;                   // Value of service call by SVC instruction
+uint32_t* SystemStackPt;                     // Pointer to the Main Stack pointer
+uint8_t svc_value;                           // Value of service call by SVC instruction
 
 
 struct osScheduler
@@ -239,7 +244,7 @@ uint8_t i, j, k = 0; //used in svcisr
 
 //*****************************************************************************//
 //                                                                             //
-//                MACRO DEFINITIONS, DIRECTIVES and STRUCTURES                 //
+//          (USER)MACRO DEFINITIONS, DIRECTIVES and STRUCTURES                 //
 //                                                                             //
 //*****************************************************************************//
 
@@ -330,7 +335,7 @@ uint8_t i, j, k = 0; //used in svcisr
 
 //*****************************************************************************//
 //                                                                             //
-//                          Function Prototypes                                //
+//                    (USER)Function Prototypes                                //
 //                                                                             //
 //*****************************************************************************//
 
@@ -373,7 +378,7 @@ void reset_new_string(void);
 
 //*****************************************************************************//
 //                                                                             //
-//                     USER GLOBAL VARIABLES                                   //
+//                    (USER)GLOBAL VARIABLES                                   //
 //                                                                             //
 //*****************************************************************************//
 
@@ -423,7 +428,7 @@ void rtosInit()
     // REQUIRED: initialize systick for 1ms system timer
     NVIC_ST_CTRL_R     = 0;                                                                    // Clear Control bit for safe programming
     NVIC_ST_CURRENT_R  = 0;                                                                    // Start Value
-    NVIC_ST_RELOAD_R   = 0x9C3F;                                                               // Set for 1Khz
+    NVIC_ST_RELOAD_R   = 0x9C3F;                                                               // Set for 1Khz, (40000000/1000) - 1
     NVIC_ST_CTRL_R     = NVIC_ST_CTRL_CLK_SRC | NVIC_ST_CTRL_INTEN | NVIC_ST_CTRL_ENABLE;      // set for source as clock interrupt enable and enable the timer.
 }
 
