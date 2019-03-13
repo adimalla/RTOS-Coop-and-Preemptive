@@ -232,15 +232,15 @@ uint8_t svc_value;                           // Value of service call by SVC ins
 
 struct osScheduler
 {
-    uint8_t preemptiveEnable;
-    uint8_t priorityEnable;
+    uint8_t preemptiveEnable;                //
+    uint8_t priorityEnable;                  //
 
 };
 
 struct osScheduler scheduler;
 
 // Loop Variables
-uint8_t i, j, k = 0; //used in svcisr
+uint8_t i, j, k = 0;                         // Used in svcisr
 
 //*****************************************************************************//
 //                                                                             //
@@ -295,18 +295,18 @@ uint8_t i, j, k = 0; //used in svcisr
 #define YELLOW_LED                PE3
 #define ORANGE_LED                PE4
 
-#define PB0                       PA2
-#define PB1                       PA3
-#define PB2                       PA4
-#define PB3                       PA5
-#define PB4                       PA6
+#define PUSH_BUTTON_0             PA2
+#define PUSH_BUTTON_1             PA3
+#define PUSH_BUTTON_2             PA4
+#define PUSH_BUTTON_3             PA5
+#define PUSH_BUTTON_4             PA6
 
-#define BUTTON_L1                 PB4
-#define BUTTON_L2                 PB3
+#define BUTTON_L1                 PUSH_BUTTON_4
+#define BUTTON_L2                 PUSH_BUTTON_3
 
-#define BUTTON_R1                 PB2
-#define BUTTON_R2                 PB1
-#define BUTTON_R3                 PB0
+#define BUTTON_R1                 PUSH_BUTTON_2
+#define BUTTON_R2                 PUSH_BUTTON_1
+#define BUTTON_R3                 PUSH_BUTTON_0
 
 //************************** Project Specific Defines **********************//
 
@@ -605,18 +605,12 @@ void systickIsr(void)
     // sleep function support
     for(taskN=0; taskN < MAX_TASKS; taskN++)
     {
-        if((tcb[taskN].state == STATE_DELAYED)&& (tcb[taskN].ticks > 0))
+        if(tcb[taskN].state == STATE_DELAYED)
         {
-
             tcb[taskN].ticks--;
 
             if(tcb[taskN].ticks == 0)
                 tcb[taskN].state = STATE_READY;
-
-        }
-        else if((tcb[taskN].state == STATE_DELAYED)&& (tcb[taskN].ticks == 0))
-        {
-            tcb[taskN].state = STATE_READY;
         }
     }
 
@@ -765,6 +759,9 @@ void svCallIsr(void)
                   if(SemaphorePt->count > 0)                                             // Check for value of semaphore count variable
                   {
                       SemaphorePt->count--;                                              // Decrement the count if count > 0
+                      SemaphorePt->semKey = 1;
+                      tcb[taskCurrent].semaphore = 0;
+                      tcb[taskCurrent].semaphore = SemaphorePt;                          // Must record if you are using it
                   }
                   else
                   {
@@ -772,9 +769,12 @@ void svCallIsr(void)
                                            (uint32_t)tcb[taskCurrent].pid;
 
                       SemaphorePt->queueSize++;                                          // Increment the index of the queue for next task
+                      SemaphorePt->semKey = 0;                                           // Key is 0 since the task doesn't have it in this state
+                      SemaphorePt->semKey = (uint32_t)tcb[taskCurrent].pid;              // Store PID to tell you are in wait state in queue
+
                       tcb[taskCurrent].state     = STATE_BLOCKED;                        // Mark the state of of current task as blocked
+                      tcb[taskCurrent].semaphore = 0;                                    // Clear Before storing
                       tcb[taskCurrent].semaphore = SemaphorePt;                          // Store the pointer to semaphore, record the semaphore
-                      SemaphorePt->semKey = (uint32_t)tcb[taskCurrent].pid;
 
                       NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                          // Set pendsv Inside 'else' since we don't have switch task all the time
                   }
@@ -783,6 +783,8 @@ void svCallIsr(void)
     case svcPOST:
                  SemaphorePt = (struct semaphore*)R0;                                    // Get Pointer to the semaphore
                  SemaphorePt->count++;                                                   // Increment the count, for other task to use resource
+                 tcb[taskCurrent].semaphore = 0;
+                 tcb[taskCurrent].semaphore = SemaphorePt;
 
                  if(SemaphorePt->queueSize > 0)                                          // someone is waiting in the semaphore queue
                  {
@@ -804,6 +806,7 @@ void svCallIsr(void)
 
                              SemaphorePt->queueSize --;                                  // Decrement Queue Size
                              SemaphorePt->semKey = 0;
+
                              break;
                          }
                      }
@@ -815,7 +818,7 @@ void svCallIsr(void)
                  task_pid = R0;
                  for(i=0; i<MAX_TASKS; i++)
                  {
-                     if(tcb[i].pid == (_fn)task_pid)
+                     if(tcb[i].pid == (_fn)task_pid)                                     // Search for requested task in list of PIDs
                      {
                          tcb[i].state = STATE_INVALID;                                   // Make the state invalid so that it cannot be scheduled
                          taskCount--;                                                    // Decrease the task count to make room for new tasks
@@ -841,7 +844,7 @@ void svCallIsr(void)
 
                                      break;
                                  }
-                                 else                                                   // Only if tasks use same semaphores in pairs
+                                 else                                                    // Only if tasks use same semaphores in pairs
                                  {
                                      for(j=0; j<MAX_TASKS; j++)
                                      {
@@ -866,7 +869,7 @@ void svCallIsr(void)
                                      }//loop
 
                                      break;
-                                 }// else statement if task not found in queue
+                                 }// else statement end if task not found in queue
 
                              }// loop
 
@@ -874,9 +877,10 @@ void svCallIsr(void)
 
                          task_pid = 0;                      // Clear local
                          tcb[i].pid = 0;                    // Make pid = 0 so that it can removed from found state in createthread()
+                         tcb[i].sp = NULL;                  //
 
                          break;
-                     }
+                     }// if Statement end
                  }
 
                  break;
@@ -1700,6 +1704,7 @@ void TIVA_shell(void)
 
 
     //********************************************* statof command ************************************************//
+
     if (is_command("statof", 1) == 1)
     {
         getTaskStatus(new_string[1]);
@@ -1738,13 +1743,24 @@ void getProcessStatus(void)
     char int_buf[3] = {0};
     char stateName[10] = {0};
 
+    // Title
     putsUart0("PID");putsUart0("    Task Name");putsUart0("    CPU%");putsUart0("    Priority");putsUart0("    STATE\r\n");
 
     for(taskNo=0; taskNo < MAX_TASKS; taskNo++)
     {
-        if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))
+        if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))                                    // Don't show task with INVALID Status
         {
-            putnUart0((uint32_t)tcb[taskNo].pid);putsUart0("   ");putsUart0(tcb[taskNo].name);
+            if((uint32_t)tcb[taskNo].pid < 10000)
+            {
+                putnUart0(0);
+                putnUart0((uint32_t)tcb[taskNo].pid);
+            }
+            else
+                putnUart0((uint32_t)tcb[taskNo].pid);
+
+            putsUart0("   ");
+
+            putsUart0(tcb[taskNo].name);
 
             len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));
 
@@ -1806,11 +1822,77 @@ void getProcessStatus(void)
 
 void getIpcs(void)
 {
-    uint8_t taskNo  = 0;
+    uint8_t semNo     = 0;
+    uint8_t len_diff  = 0;
+    uint8_t col_width = 0;
+    uint8_t taskNo    = 0;
+    uint8_t name_len[MAX_SEMAPHORES] = {0};
 
-    for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
+    // Title
+    putsUart0("Sem Name"); mov_right(5);putsUart0("Sem Count"); mov_right(3);putsUart0("Queue Size"); mov_right(3);putsUart0("Waiting");
+    mov_right(5);putsUart0("Running"); putsUart0("\r\n");
+
+
+    for(semNo=0; semNo < semaphoreCount; semNo++)                                   // Find Max Column Width
+        name_len[semNo] = uSTRLEN(semaphores[semNo].semName);                       // Max length of name = Max Column width
+
+    col_width = name_len[0];                                                        // First Value = first element of Array
+
+    for(semNo=0; semNo < semaphoreCount; semNo++)                                   // Calculate Max Column Width
     {
+        if(name_len[semNo] > col_width)                                             // Highest Number in Array
+            col_width = name_len[semNo];
+    }
 
+    // Print Data
+    for(semNo=0; semNo < semaphoreCount; semNo++)
+    {
+        putsUart0(semaphores[semNo].semName);                                       // Print Semaphore Name
+        len_diff = 0;
+        len_diff = abs(uSTRLEN(semaphores[semNo].semName) - col_width);
+
+        mov_right(5 + len_diff);
+        if(semaphores[semNo].count < 10)                                            // Print Semaphore Count
+        {
+            putnUart0(0);
+            putnUart0(semaphores[semNo].count);
+        }
+        else
+        {
+            putnUart0(semaphores[semNo].count);
+        }
+
+        mov_right(11);
+        putnUart0(0);                                                               // Print Queue Size
+        putnUart0(semaphores[semNo].queueSize);
+
+        mov_right(7);
+        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                   // Print Tasks that are waiting
+        {
+            if(&semaphores[semNo] == tcb[taskNo].semaphore)
+            {
+                if(semaphores[semNo].semKey == (uint32_t)tcb[taskNo].pid)
+                    putsUart0(tcb[taskNo].name);
+
+                else if(semaphores[semNo].semKey == 0 || semaphores[semNo].semKey == 1)
+                {
+                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
+                        putcUart0(' ');
+                }
+            }
+        }
+
+        mov_right(3);
+        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                   // Print Tasks that are running
+        {
+            if(&semaphores[semNo] == tcb[taskNo].semaphore)
+            {
+                if(semaphores[semNo].semKey != (uint32_t)tcb[taskNo].pid || semaphores[semNo].semKey == 1 )
+                    putsUart0(tcb[taskNo].name);
+            }
+        }
+
+        putsUart0("\r\n");
     }
 
 
@@ -1822,8 +1904,11 @@ void getTaskStatus(char *threadName)
     uint8_t taskNo  = 0;
     uint8_t taskFnd = 0;
 
+<<<<<<< HEAD
     //putsUart0("Model:381 \r\n");
 
+=======
+>>>>>>> ver-1.5.5.1
     for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
     {
         if(uSTRCMP(threadName,tcb[taskNo].name) == 0)
@@ -1863,19 +1948,19 @@ uint8_t readPbs(void)
 {
     uint8_t retval_button = 0;
 
-    if(!PB0)
+    if(!PUSH_BUTTON_0)
         retval_button |= 1;
 
-    if(!PB1)
+    if(!PUSH_BUTTON_1)
         retval_button |= 2;
 
-    if(!PB2)
+    if(!PUSH_BUTTON_2)
         retval_button |= 4;
 
-    if(!PB3)
+    if(!PUSH_BUTTON_3)
         retval_button |= 8;
 
-    if(!PB4)
+    if(!PUSH_BUTTON_4)
         retval_button |= 16;
 
     return retval_button;

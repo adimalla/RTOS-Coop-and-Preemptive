@@ -4,7 +4,12 @@ https://github.com/adimalla/RTOS_6314
 
 ## Update notes
 Date:02/26/2019
--still not sure if this project is working properly or not
+* still not sure if this project is working properly or not
 
-
+Date:03/13/2019 |Time:4:30 AM
+* The Project is working fine till not with few bugs, some of the task were failing after couple of hours but the issue is now resolved for now
+* If you kill a task it will be removed from the process table, if you create that task again, then it will be added at the same place instead,
+  of getting added at the botton, this is because we are taking the PID of the function which has already been assigned by the compiler as
+  address of the function in the stack, which never changes.
+  Better way to do it would be to take the PID from the SP value (LSB)?, No, the context is always saved even the stack pointer is the same
 
