@@ -881,10 +881,8 @@ void svCallIsr(void)
                          }// check semaphore if statement
 
                          task_pid = 0;                      // Clear local
-                         tcb[i].pid = NULL;                    // Make pid = 0 so that it can removed from found state in createthread()
+                         tcb[i].pid = 0;                    // Make pid = 0 so that it can removed from found state in createthread()
                          tcb[i].sp = NULL;                  //
-                         tcb[i].semaphore = NULL;
-                         SemaphorePt->semKey = 0;
 
                          break;
                      }// if Statement end
@@ -1836,8 +1834,8 @@ void getIpcs(void)
     uint8_t name_len[MAX_SEMAPHORES] = {0};
 
     // Title
-    putsUart0("Sem Name"); mov_right(5);putsUart0("Sem Count"); mov_right(3);putsUart0("Queue Size"); mov_right(3);putsUart0("Running");
-    mov_right(5);putsUart0("Waiting"); putsUart0("\r\n");
+    putsUart0("Sem Name"); mov_right(5);putsUart0("Sem Count"); mov_right(3);putsUart0("Queue Size"); mov_right(3);putsUart0("Waiting");
+    mov_right(5);putsUart0("Running"); putsUart0("\r\n");
 
 
     for(semNo=0; semNo < semaphoreCount; semNo++)                                   // Find Max Column Width
@@ -1874,26 +1872,6 @@ void getIpcs(void)
         putnUart0(semaphores[semNo].queueSize);
 
         mov_right(7);
-        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                   // Print Tasks that are running
-        {
-            if(&semaphores[semNo] == tcb[taskNo].semaphore)
-            {
-                if((semaphores[semNo].semKey != (uint32_t)tcb[taskNo].pid || semaphores[semNo].semKey == 1))
-                {
-                    putsUart0(tcb[taskNo].name);
-                    break;
-                }
-                else
-                {
-                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
-                        putcUart0(' ');
-
-                    break;
-                }
-            }
-        }
-
-        mov_right(3);
         for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                   // Print Tasks that are waiting
         {
             if(&semaphores[semNo] == tcb[taskNo].semaphore)
@@ -1901,11 +1879,21 @@ void getIpcs(void)
                 if(semaphores[semNo].semKey == (uint32_t)tcb[taskNo].pid)
                     putsUart0(tcb[taskNo].name);
 
-//                else if(semaphores[semNo].semKey == 0 || semaphores[semNo].semKey == 1)
-//                {
-//                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
-//                        putcUart0(' ');
-//                }
+                else if(semaphores[semNo].semKey == 0 || semaphores[semNo].semKey == 1)
+                {
+                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
+                        putcUart0(' ');
+                }
+            }
+        }
+
+        mov_right(3);
+        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                   // Print Tasks that are running
+        {
+            if(&semaphores[semNo] == tcb[taskNo].semaphore)
+            {
+                if(semaphores[semNo].semKey != (uint32_t)tcb[taskNo].pid || semaphores[semNo].semKey == 1 )
+                    putsUart0(tcb[taskNo].name);
             }
         }
 
