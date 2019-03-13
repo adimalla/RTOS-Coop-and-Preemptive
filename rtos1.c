@@ -14,7 +14,7 @@
 // System Clock    : 40 MHz                                                     //
 // UART Baudrate   : 115200                                                     //
 // Data Length     : 8 Bits                                                     //
-// Version         : 1.5.5                                                      //
+// Version         : 1.5.5.1                                                    //
 // Version Control : GIT                                                        //
 //                                                                              //
 // Hardware configuration:                                                      //
@@ -74,6 +74,16 @@
 
 
 //*********** Versions ***************//
+//
+//// Version 1.5.5.1 -(03/13/2019)
+// info:
+//      - 'ipcs' functionality added.
+//      - Currently testing for tasks failures
+//
+// Version 1.5.5 -(03/12/2019)
+// info:
+//      - Flash4Hz ticks overflow bug removed with extra if else cases in systickISR
+//      - 'statof' extra command added for debug purposes (not included in the coursework)
 //
 // Version 1.5.4 -(03/11/2019)
 // info:
