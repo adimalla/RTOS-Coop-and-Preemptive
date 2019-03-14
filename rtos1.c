@@ -252,6 +252,8 @@ struct osScheduler scheduler;
 // Loop Variables
 uint8_t i, j, k = 0;                         // Used in svcisr
 
+uint32_t* PC_VAL = 0;                        // User in svcisr
+
 //*****************************************************************************//
 //                                                                             //
 //                MACRO DEFINITIONS, DIRECTIVES and STRUCTURES                 //
@@ -415,7 +417,7 @@ uint8_t args_updated = 0;                                                       
 // Test Variables
 
 //commands
-char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help", "statof", "pi"};
+char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help", "statof", "pi", "info"};
 
 //-----------------------------------------------------------------------------
 // RTOS Kernel Functions
@@ -430,7 +432,7 @@ void rtosInit()
 
     // Default States
     scheduler.priorityEnable   = 1;
-    scheduler.priorityInherit  = 0;
+    scheduler.priorityInherit  = 1;
     scheduler.preemptiveEnable = 0;
 
     // clear out tcb records
@@ -647,7 +649,7 @@ void systickIsr(void)
 
 }
 
-uint32_t* PC_VAL = 0;
+
 
 // REQUIRED: in coop and preemptive, modify this function to add support for task switching
 // REQUIRED: process UNRUN and READY tasks differently
@@ -1562,10 +1564,25 @@ void TIVA_shell(void)
 
 
     }
-    else if(is_command("info",0) == -1)
+    else if(is_command("help",0) == -1)
     {
         putsUart0("ERROR:\"help\" Command takes no argument \r\n");
     }
+
+
+    //************************************* info command ******************************************//
+
+
+        if (uSTRCMP(new_string[0], "info") == 0)
+        {
+            project_info();
+            putsUart0("sleep: Ticks Not protected \r\n");
+
+        }
+        else if(is_command("info",0) == -1)
+        {
+            putsUart0("ERROR:\"info\" Command takes no argument \r\n");
+        }
 
 
     //************************************* scheduler type command ******************************************//
