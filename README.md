@@ -3,7 +3,7 @@ RTOS for coursework
 
 ## Branches
 ### Current Branch
-* master (03/14/2019)
+* ver-1.7 (03/14/2019)
  
 ### History
 * master merged with branch_ver-1.5.5      (03/14/2019)  
@@ -49,15 +49,15 @@ https://github.com/adimalla/RTOS_6314
 
 ## Bugs
 
-Date:03/12/2019
-* flash4Hz bug returns, but removed with if else cases in systickISR
-
 Date:03/14/2019
 * Flash4Hz crash bug root cause discovered, data overflow / error in write on 'currentPriority' struct member of tcb, which one up above the 'ticks' member.
 * Attempt to Resolve in priority inheritance implemenation, priority = priority + 8;
 
 Date:03/13/2019
 * priority scheduling bug removed, solved: priority scheduling intialized to 1 in rtosInit
+
+Date:03/12/2019
+* flash4Hz bug returns, but removed with if else cases in systickISR
 
 Date:03/09/2019
 * flas4hz bug removed.

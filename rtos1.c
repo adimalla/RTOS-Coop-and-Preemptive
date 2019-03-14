@@ -14,7 +14,7 @@
 // System Clock    : 40 MHz                                                     //
 // UART Baudrate   : 115200                                                     //
 // Data Length     : 8 Bits                                                     //
-// Version         : 1.5.5.2                                                    //
+// Version         : 1.7                                                        //
 // Version Control : GIT                                                        //
 //                                                                              //
 // Hardware configuration:                                                      //
@@ -1493,7 +1493,7 @@ void project_info(void)
     putsUart0("Name    : Aditya Mall \r\n");                                                                               // Author Name
     putsUart0("Course  : EE-6314 \r\n" );                                                                                  // Author ID
     putsUart0("email   : \033[38;5;51;4maditya.mall@mavs.uta.edu\033[0m \r\n");                                            // Email Info, Foreground color:Cyan
-    putsUart0("Version : 1.5.5.2 \r\n");
+    putsUart0("Version : 1.7 \r\n");
 
     putsUart0("\r\n");
     putsUart0("\033[33;1m!! This Program requires Local Echo, please enable Local Echo from settings !!\033[0m \r\n");     // Foreground color:Yellow
