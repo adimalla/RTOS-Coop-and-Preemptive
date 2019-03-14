@@ -6,13 +6,13 @@ RTOS for coursework
 * master (03/14/2019)
  
 ### History
-* master merged with branch_ver-1.5.5 (03/11/2019)  
+* master merged with branch_ver-1.5.5      (03/14/2019)  
 * branch_ver-1.5.5 merged with ver-1.5.5.2 (03/14/2019)
 
-* master merged with branch_ver-1.5.4 (03/11/2019) 
-* master merged with branch_ver-1.5.3 (03/07/2019) 
-* master merged with branch_ver-1.5.2 (02/27/2019)
-* master merged with branch_ver-1.5.1 (02/25/2019)
+* master merged with branch_ver-1.5.4      (03/11/2019) 
+* master merged with branch_ver-1.5.3      (03/07/2019) 
+* master merged with branch_ver-1.5.2      (02/27/2019)
+* master merged with branch_ver-1.5.1      (02/25/2019)
 
 ## github repo
 https://github.com/adimalla/RTOS_6314
