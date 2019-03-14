@@ -75,8 +75,6 @@
 
 //*********** Versions ***************//
 //
-<<<<<<< HEAD
-=======
 // Version 1.5.5.2 -(03/14/2019)
 // info:
 //      - 'pi' (priority inheritance) functionality added.
@@ -89,7 +87,6 @@
 //      - 'ipcs' functionality added.
 //      - Currently testing for tasks failures
 //
->>>>>>> ver-1.5.5.2
 // Version 1.5.5 -(03/12/2019)
 // info:
 //      - Flash4Hz ticks overflow bug removed with extra if else cases in systickISR
@@ -2069,11 +2066,9 @@ void getTaskStatus(char *threadName)
     uint8_t taskNo  = 0;
     uint8_t taskFnd = 0;
 
-<<<<<<< HEAD
+
     //putsUart0("Model:381 \r\n");
 
-=======
->>>>>>> ver-1.5.5.1
     for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
     {
         if(uSTRCMP(threadName,tcb[taskNo].name) == 0)
