@@ -18,13 +18,13 @@ RTOS for coursework
 https://github.com/adimalla/RTOS_6314
 
 ## Change log and versions
-#### Date:03/14/2019
-<b>Version 1.5.5.2</b>
+### Date:03/14/2019
+* <b>Version 1.5.5.2</b>
 * 'pi' (priority inheritance) functionality added.
 * ps and ipcs table formatting
 * Currently testing for tasks failures
 
-#### Date:03/13/2019
+### Date:03/13/2019
 * <b>Version 1.5.5.1</b>
 * 'ipcs' functionality added.
 * Currently testing for tasks failures
@@ -48,18 +48,16 @@ https://github.com/adimalla/RTOS_6314
 * All threads along with shell/cli added.
 
 ## Bugs
-<<<<<<< HEAD
 
 Date:03/12/2019
 * flash4Hz bug returns, but removed with if else cases in systickISR
-=======
+
 Date:03/14/2019
 * Flash4Hz crash bug root cause discovered, data overflow / error in write on 'currentPriority' struct member of tcb, which one up above the 'ticks' member.
 * Attempt to Resolve in priority inheritance implemenation, priority = priority + 8;
 
 Date:03/13/2019
 * priority scheduling bug removed, solved: priority scheduling intialized to 1 in rtosInit
->>>>>>> ver-1.5.5.2
 
 Date:03/09/2019
 * flas4hz bug removed.
