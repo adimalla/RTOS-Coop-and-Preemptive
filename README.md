@@ -18,13 +18,13 @@ RTOS for coursework
 https://github.com/adimalla/RTOS_6314
 
 ## Change log and versions
-### Date:03/14/2019
+#### Date:03/14/2019
 * <b>Version 1.5.5.2</b>
 * 'pi' (priority inheritance) functionality added.
 * ps and ipcs table formatting
 * Currently testing for tasks failures
 
-### Date:03/13/2019
+#### Date:03/13/2019
 * <b>Version 1.5.5.1</b>
 * 'ipcs' functionality added.
 * Currently testing for tasks failures
