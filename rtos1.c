@@ -223,9 +223,10 @@ struct _tcb
     char     name[16];                       // name of task used in ps command
     void     *semaphore;                     // pointer to the semaphore that is blocking the thread
     int8_t   skips;                          // Skip count for priority calculations
-
+    //uint64_t threadTime;
 } tcb[MAX_TASKS];
 
+struct _tcb tcb[MAX_TASKS] = {0};
 
 enum svc_cases
 {
@@ -253,6 +254,22 @@ struct osScheduler scheduler;
 uint8_t i, j, k = 0;                         // Used in svcisr
 
 uint32_t* PC_VAL = 0;                        // User in svcisr
+
+// Time Calculation Variables
+uint32_t startTime;
+uint32_t stopTime;
+
+
+struct timeCalc
+{
+    uint32_t runTime;
+    uint32_t totalTime;
+    uint32_t filterTime;
+    uint32_t taskPercentage;
+
+}processTime[MAX_TASKS];
+
+uint16_t t_cnt = 0;
 
 //*****************************************************************************//
 //                                                                             //
@@ -433,7 +450,8 @@ void rtosInit()
     // Default States
     scheduler.priorityEnable   = 1;
     scheduler.priorityInherit  = 1;
-    scheduler.preemptiveEnable = 0;
+    scheduler.preemptiveEnable = 1;
+
 
     // clear out tcb records
     for (i = 0; i < MAX_TASKS; i++)
@@ -511,7 +529,9 @@ void rtosStart()
 
     tcb[taskCurrent].state = STATE_READY;
 
+
     (*fn)();
+
 
 }
 
@@ -607,7 +627,7 @@ void yield()
 // execution yielded back to scheduler until time elapses using pendsv
 // push registers, set state to delayed, store timeout, call scheduler, pop registers,
 // return to new function (separate unrun or ready processing)
-void sleep(uint32_t tick)
+void sleep(const uint32_t tick)
 {
     __asm(" SVC #101");
 }
@@ -625,30 +645,76 @@ void post(struct semaphore *pSemaphore)
     __asm(" SVC #103");
 }
 
+
+
+
 // REQUIRED: modify this function to add support for the system timer
 // REQUIRED: in preemptive code, add code to request task switch
 void systickIsr(void)
 {
     uint32_t taskN;
+    uint8_t tsk;
+    uint8_t firstUpdate = 1;
+    uint32_t totalTime = 0;
 
     // sleep function support
     for(taskN=0; taskN < MAX_TASKS; taskN++)
     {
-        if(tcb[taskN].state == STATE_DELAYED)
+        if(tcb[taskN].state == STATE_DELAYED && tcb[taskN].ticks > 0)
         {
             tcb[taskN].ticks--;
-
-            if(tcb[taskN].ticks == 0)
-                tcb[taskN].state = STATE_READY;
         }
+        else if(tcb[taskN].ticks == 0 && tcb[taskN].state == STATE_DELAYED)
+            tcb[taskN].state = STATE_READY;
     }
 
-    // preemptive scheduler support
-    if(scheduler.preemptiveEnable)
+    t_cnt++;
+    if(t_cnt == 100)
+    {
+
+        //Filter data
+        for(tsk=0; tsk<10; tsk++)
+        {
+            if(firstUpdate)
+            {
+                processTime[tsk].filterTime = processTime[tsk].runTime;
+                firstUpdate = 0;
+            }
+            else
+                processTime[tsk].filterTime = processTime[tsk].filterTime * 0.9 + processTime[tsk].runTime * 0.1;
+
+        }
+
+        //calculate total time
+        for(tsk=0; tsk<taskCount; tsk++)
+        {
+            totalTime = totalTime + processTime[tsk].filterTime;
+
+        }
+
+        t_cnt = 0;
+
+        for(tsk=0; tsk<10; tsk++)
+        {
+            //processTime[tsk].filterTime = 0;
+            totalTime = 0;
+            processTime[tsk].runTime = 0;
+        }
+
+
+
+    }
+
+
+    // Preemptive scheduler support
+    // Make sure there is at least one task with READY state as this is the first ISR to run,
+    // in rtosInit() or will switch tasks that don't exist and will get into fault ISR.
+    if(scheduler.preemptiveEnable && taskCurrent != 0)
         NVIC_INT_CTRL_R= NVIC_INT_CTRL_PEND_SV;
 
 }
 
+uint32_t time_diff = 0;
 
 
 // REQUIRED: in coop and preemptive, modify this function to add support for task switching
@@ -656,12 +722,27 @@ void systickIsr(void)
 void pendSvIsr(void)
 {
     __asm(" PUSH {R4-R11}");                      // Push reg list
-    __asm(" MOV R4,LR");
+    __asm(" MOV R4,LR");                          // Save value of LR
 
 
     tcb[taskCurrent].sp = getStackPt();           // save stack pointer in tcb
     setStackPt(SystemStackPt);                    // set stack pointer to System Stack pointer
+
+
+    // stop the timer
+    stopTime = TIMER1_TAV_R;
+
+    // Calculate time diff
+    if(stopTime > startTime)
+        processTime[taskCurrent].runTime = stopTime - startTime;
+
+
     taskCurrent = rtosScheduler();                // task current = rtos scheduler
+
+
+    // start the timer
+    TIMER1_TAV_R = 0;
+    startTime = TIMER1_TAV_R;
 
 
     if(tcb[taskCurrent].state == STATE_READY)
@@ -677,42 +758,19 @@ void pendSvIsr(void)
         tcb[taskCurrent].state = STATE_READY;
         setStackPt(tcb[taskCurrent].sp);
 
-        __asm(" MOV R0, #0x01000000" );        //0x01000000
-        __asm(" PUSH {R0}"           );
-        PC_VAL = tcb[taskCurrent].pid;
-        __asm(" PUSH {R0}"           );
-        __asm(" PUSH {LR}"           );
-        __asm(" PUSH {R12}"          );
-        __asm(" PUSH {R0-R3}"        );
+        __asm(" MOV R0, #0x01000000" );        //0x01000000. xpsr
+        __asm(" PUSH {R0}"           );        //push xpsr
+        PC_VAL = tcb[taskCurrent].pid;         //pc value, pc at thread, pid of thread
+        __asm(" PUSH {R0}"           );        //push pc
+        __asm(" PUSH {LR}"           );        //push lr
+        __asm(" PUSH {R12}"          );        //push r12
+        __asm(" PUSH {R0-R3}"        );        //push r0 to r3
 
-        __asm(" PUSH {R4}"           );        //value of LR
-        __asm(" PUSH {R3}"           );
+        __asm(" PUSH {R4}"           );        //push value of LR, saved in r4 at starting of pendsv
+        __asm(" PUSH {R3}"           );        //push compiler reg
 
 
-//        stack[taskCurrent][255] = 0x01000000;                   //xpsr
-//        stack[taskCurrent][254] = tcb[taskCurrent].pid;         //pc
-//        stack[taskCurrent][253] = 15;                           //lr
-//        stack[taskCurrent][252] = 14;                           //r12
-//        stack[taskCurrent][251] = 13;                           //r3
-//        stack[taskCurrent][250] = 12;                           //r2
-//        stack[taskCurrent][249] = 11;                           //r1
-//        stack[taskCurrent][248] = 10;                           //r0
-//        stack[taskCurrent][247] = 0xFFFFFFF9;                   //value of lr
-//        stack[taskCurrent][246] = 9;
-//        stack[taskCurrent][245] = 8;
-//        stack[taskCurrent][244] = 7;
-//        stack[taskCurrent][243] = 6;
-//        stack[taskCurrent][242] = 5;
-//        stack[taskCurrent][241] = 4;
-//        stack[taskCurrent][240] = 3;
-//        stack[taskCurrent][239] = 2;
-//        stack[taskCurrent][238] = 1;
-//
-//        tcb[taskCurrent].sp = &stack[taskCurrent][240];
-
-    }
-//    setStackPt(tcb[taskCurrent].sp);
-//    __asm(" POP  {R4-R11}");
+        }
 
 }
 
@@ -1015,6 +1073,14 @@ void initHw()
     // External LEDs
     GPIO_PORTE_DEN_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);
     GPIO_PORTE_DIR_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);
+
+    //******************************************************* Systick Timer for Measurement ****************************************************//
+    SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R1;                              // turn-on timer
+    TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                        // turn-off timer before reconfiguring
+    TIMER1_CFG_R = TIMER_CFG_32_BIT_TIMER;                                  // configure as 32-bit timer (A+B)
+    TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD | TIMER_TAMR_TACDIR;             // configure for periodic mode (count Up)
+    TIMER1_TAV_R = 0;
+    TIMER1_CTL_R |= TIMER_CTL_TAEN;
 
 }
 
