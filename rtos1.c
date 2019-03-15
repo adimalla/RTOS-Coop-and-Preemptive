@@ -222,8 +222,9 @@ struct _tcb
     uint32_t ticks;                          // ticks until sleep complete
     char     name[16];                       // name of task used in ps command
     void     *semaphore;                     // pointer to the semaphore that is blocking the thread
-    int8_t   skips;                          // Skip count for priority calculations
+    uint8_t   skips;                         // Skip count for priority calculations
     //uint64_t threadTime;
+
 } tcb[MAX_TASKS];
 
 struct _tcb tcb[MAX_TASKS] = {0};
@@ -234,7 +235,7 @@ enum svc_cases
     svcSLEEP = 101,                          // Value of switch label in switch case
     svcWAIT  = 102,                          // Value of wait label in switch case
     svcPOST  = 103,                          // Value of post label in switch case
-    svcKILL  = 104,
+    svcKILL  = 104,                          // Value of kill label in switch case
 };
 
 uint32_t* SystemStackPt;                     // Pointer to the Main Stack pointer
@@ -672,7 +673,7 @@ void systickIsr(void)
     if(t_cnt == 100)
     {
 
-        //Filter data
+        // Filter data
         for(tsk=0; tsk<10; tsk++)
         {
             if(firstUpdate)
@@ -683,25 +684,30 @@ void systickIsr(void)
             else
                 processTime[tsk].filterTime = processTime[tsk].filterTime * 0.9 + processTime[tsk].runTime * 0.1;
 
+            //totalTime = totalTime + processTime[tsk].filterTime;
+
         }
 
-        //calculate total time
+        // Calculate total time
         for(tsk=0; tsk<taskCount; tsk++)
         {
             totalTime = totalTime + processTime[tsk].filterTime;
 
         }
 
+        // Calculate cpu %age
+        for(tsk=0; tsk<taskCount; tsk++)
+        {
+            processTime[tsk].taskPercentage = (processTime[tsk].filterTime * 10000) / totalTime;
+        }
+
         t_cnt = 0;
 
         for(tsk=0; tsk<10; tsk++)
         {
-            //processTime[tsk].filterTime = 0;
-            totalTime = 0;
             processTime[tsk].runTime = 0;
+            totalTime = 0;
         }
-
-
 
     }
 
@@ -730,10 +736,11 @@ void pendSvIsr(void)
 
 
     // stop the timer
-    stopTime = TIMER1_TAV_R;
+    if(tcb[taskCurrent].state != STATE_BLOCKED && tcb[taskCurrent].state != STATE_INVALID)
+        stopTime = TIMER1_TAV_R;
 
     // Calculate time diff
-    if(stopTime > startTime)
+    if(stopTime > startTime && tcb[taskCurrent].state != STATE_BLOCKED && tcb[taskCurrent].state != STATE_INVALID)
         processTime[taskCurrent].runTime = stopTime - startTime;
 
 
@@ -741,8 +748,11 @@ void pendSvIsr(void)
 
 
     // start the timer
-    TIMER1_TAV_R = 0;
-    startTime = TIMER1_TAV_R;
+    if(tcb[taskCurrent].state != STATE_BLOCKED && tcb[taskCurrent].state != STATE_INVALID)
+    {
+        TIMER1_TAV_R = 0;
+        startTime = TIMER1_TAV_R;
+    }
 
 
     if(tcb[taskCurrent].state == STATE_READY)
@@ -1907,15 +1917,22 @@ void getProcessStatus(void)
     char int_buf[3] = {0};
     char stateName[10] = {0};
 
+    char NumBuff[4] = {0};
+    uint8_t cpuNUM = 0;
+    uint32_t cpuP = 0;
+
+
     putsUart0("\r\n");
 
     // Title
     putsUart0("\033[33;1m");
-    putsUart0("PID"); mov_right(5);putsUart0("Task Name"); mov_right(4);putsUart0("CPU%"); mov_right(3);putsUart0("Priority");
+    putsUart0("PID"); mov_right(5);putsUart0("Task Name"); mov_right(5);putsUart0("CPU%"); mov_right(4);putsUart0("Priority");
     mov_right(5);putsUart0("STATE"); putsUart0("\r\n"); putsUart0("\033[0m");
 
     for(taskNo=0; taskNo < MAX_TASKS; taskNo++)
     {
+        cpuP = processTime[taskNo].taskPercentage;
+
         if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))                                    // Don't show task with INVALID Status
         {
             if((uint32_t)tcb[taskNo].pid < 10000)
@@ -1932,11 +1949,29 @@ void getProcessStatus(void)
 
             len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));
 
+            // Print CPU times
             mov_right(len_diff+4);
 
-            putnUart0(0);
-            putnUart0(0);
-            putnUart0(0);
+            cpuNUM = cpuP / 100;
+
+            if(cpuNUM < 10)
+                putsUart0("0");
+
+            ltoa(cpuNUM,NumBuff);
+            putsUart0(NumBuff);
+            cpuNUM = 0;
+
+            putcUart0('.');
+
+            cpuNUM = cpuP % 100;
+
+            ltoa(cpuNUM,NumBuff);
+            putsUart0(NumBuff);
+
+            if(cpuNUM < 10)
+                putsUart0("0");
+            cpuNUM = 0;
+
 
             mov_right(7);
 
