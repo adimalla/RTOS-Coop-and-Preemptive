@@ -78,7 +78,6 @@
 // Version 1.7 -(03/16/2019)
 // info:
 //      - cpu task runtime calculations added
-//      - createthread shell command added
 //
 // Version 1.5.5.2 -(03/14/2019)
 // info:
@@ -167,6 +166,7 @@
 #include "tm4c123gh6pm.h"
 
 
+
 //*****************************************************************************//
 //                                                                             //
 //                  KERNEL DEFINES AND DATA STRUCTURES                         //
@@ -175,26 +175,25 @@
 
 
 //******************* Semaphore Defines **********************//
-
-#define MAX_SEMAPHORES   5                             // Maximum number of semaphores
-#define MAX_QUEUE_SIZE   5                             // Maximum queue size
+#define MAX_SEMAPHORES   5                   // Maximum number of semaphores
+#define MAX_QUEUE_SIZE   5                   // Maximum queue size
 
 
 
 //******************* Task Defines **********************//
 
 // Task/Thread States
-#define STATE_INVALID    0                             // No task
-#define STATE_UNRUN      1                             // Task has never been run
-#define STATE_READY      2                             // Has run, can resume at any time
-#define STATE_DELAYED    3                             // Has run, but now awaiting timer
-#define STATE_BLOCKED    4                             // Has run, but now blocked by semaphore
+#define STATE_INVALID    0                   // No task
+#define STATE_UNRUN      1                   // Task has never been run
+#define STATE_READY      2                   // Has run, can resume at any time
+#define STATE_DELAYED    3                   // Has run, but now awaiting timer
+#define STATE_BLOCKED    4                   // Has run, but now blocked by semaphore
 
-#define MAX_TASKS        10                            // Maximum number of valid tasks
+#define MAX_TASKS        10                  // Maximum number of valid tasks
 
 // Processor Clocks
-#define CLOCKFREQ        40000000                      // Main Clock/BUS Frequency
-#define SYSTICKFREQ      1000                          // Systick timer Frequency
+#define CLOCKFREQ        40000000            // Main Clock/BUS Frequency
+#define SYSTICKFREQ      1000                // Systick timer Frequency
 
 
 
@@ -203,10 +202,10 @@
 // Semaphore Data Structure
 struct semaphore
 {
-    uint16_t count;                                    // Store Semaphore count
-    uint16_t queueSize;                                // Store Queue Size
-    char     semName[15];                              // Store Semaphore Name
-    uint32_t processQueue[MAX_QUEUE_SIZE];             // Store PID of blocked waiting task
+    uint16_t count;                          // Store Semaphore count
+    uint16_t queueSize;                      // Store Queue Size
+    char     semName[15];                    // Store Semaphore Name
+    uint32_t processQueue[MAX_QUEUE_SIZE];   // Store PID of blocked waiting task
 
 } semaphores[MAX_SEMAPHORES];
 
@@ -214,15 +213,15 @@ struct semaphore
 // Thread Control Block Data Structure
 struct _tcb
 {
-    uint8_t  state;                                    // For Storing State Values, mentioned above in Macro defines
-    void     *pid;                                     // Used to uniquely identify thread
-    void     *sp;                                      // Location of stack pointer for thread
-    int8_t   priority;                                 // -8 = highest to 7 = lowest
-    int8_t   currentPriority;                          // Used for priority inheritance
-    uint32_t ticks;                                    // Ticks until sleep complete
-    char     name[16];                                 // Name of task used in ps command
-    void     *semaphore;                               // Pointer to the semaphore that is blocking the thread
-    uint8_t   skips;                                   // Skip count for priority calculations
+    uint8_t  state;                          // For Storing State Values, mentioned above in Macro defines
+    void     *pid;                           // Used to uniquely identify thread
+    void     *sp;                            // Location of stack pointer for thread
+    int8_t   priority;                       // -8 = highest to 7 = lowest
+    int8_t   currentPriority;                // Used for priority inheritance
+    uint32_t ticks;                          // Ticks until sleep complete
+    char     name[16];                       // Name of task used in ps command
+    void     *semaphore;                     // Pointer to the semaphore that is blocking the thread
+    uint8_t   skips;                         // Skip count for priority calculations
 
 } tcb[MAX_TASKS];
 
@@ -230,28 +229,28 @@ struct _tcb
 // Service Call ISR cases
 enum svc_cases
 {
-    svcYIELD = 100,                                    // Value of yield label in switch case
-    svcSLEEP = 101,                                    // Value of switch label in switch case
-    svcWAIT  = 102,                                    // Value of wait label in switch case
-    svcPOST  = 103,                                    // Value of post label in switch case
-    svcKILL  = 104,                                    // Value of kill label in switch case
+    svcYIELD = 100,                          // Value of yield label in switch case
+    svcSLEEP = 101,                          // Value of switch label in switch case
+    svcWAIT  = 102,                          // Value of wait label in switch case
+    svcPOST  = 103,                          // Value of post label in switch case
+    svcKILL  = 104,                          // Value of kill label in switch case
 };
 
 // RTOS scheduler DS
 struct osScheduler
 {
-    uint8_t preemptiveEnable;                          // For Setting the Preemptive Scheduler Enable Mode
-    uint8_t priorityEnable;                            // For Setting the Priority Scheduler Enable Mode
-    uint8_t priorityInherit;                           // For Enabling Priority Inheritance
+    uint8_t preemptiveEnable;                // For Setting the Preemptive Scheduler Enable Mode
+    uint8_t priorityEnable;                  // For Setting the Priority Scheduler Enable Mode
+    uint8_t priorityInherit;                 // For Enabling Priority Inheritance
 };
 
 // DS for time calculations
 struct timeCalc
 {
-    uint32_t runTime;                                  // Used for storing time taken by task to run
-    //uint32_t totalTime;                              // Used for storing total run time of task till OS is running
-    uint32_t filterTime;                               // Used for storing the moving averaged value of run time
-    uint32_t taskPercentage;                           // User for storing value of CPU usage for each task
+    uint32_t runTime;                        // Used for storing time taken by task to run
+    //uint32_t totalTime;                    // Used for storing total run time of task till OS is running
+    uint32_t filterTime;                     // Used for storing the moving averaged value of run time
+    uint32_t taskPercentage;                 // User for storing value of CPU usage for each task
 
 }processTime[MAX_TASKS];
 
@@ -266,27 +265,43 @@ struct timeCalc
 // Typedefs
 typedef void (*_fn)();                                 // Typedef to function pointer for threads
 
+
 // Kernel main Functions and Helper functions
-void rtosInit();                                       // Function to Initialize RTOS.          | retval: void   | param: NULL            |
-int rtosScheduler();                                   // Function to Configure RTOS Scheduler. | retval: task   | param: NULL            |
-void rtosStart();                                      // Function to Start the RTOS.           | retval: void   | param: NULL            |
-bool createThread(_fn fn, char name[], int priority);  // Function to Create Task/Threads.      | retval: bool   | param: Pointer To Task | param: Task Name | param: Task Priority |
-void destroyThread(_fn fn);                            // Function to Destroy Task/Threads.     | retval: void   | param: Pointer To Task |
-void setThreadPriority(_fn fn, uint8_t priority);      // Function to Destroy Task/Threads.     | retval: void   | param: Task Priority   |
-void yield();                                          // Function to Initialize RTOS.          | retval: void   | param: NULL            |
-void sleep(const uint32_t tick);                       // Function to set sleep time Interval   | retval: void   | param: Value of sleep  |
-uint32_t ret_R0(void);                                 // Function to get value of 1st Argument | retval: uint32 | param: NULL            |
-uint32_t ret_R1(void);                                 // Function to get value of 2nd Argument | retval: uint32 | param: NULL            |
-uint32_t ret_R2(void);                                 // Function to get value of 3rt Argument | retval: uint32 | param: NULL            |
-uint8_t get_svcValue(void);                            // Function to get value of SVC Inst.    | retval: uint8  | param: NULL            |
-void setStackPt(void* func_stack);                     // Function to set System Stack Pointer  | retval: void   | param: PID To Task     |
-uint32_t* getStackPt();                                // Function to get Stack Pointer         | retval: uint32 | param: NULL            |
+void rtosInit();                                       // Function to Initialize RTOS.          | retval: void  | param: NULL            |
+
+int rtosScheduler();                                   // Function to Configure RTOS Scheduler. | retval: void  | param: NULL            |
+
+void rtosStart();                                      // Function to Start the RTOS.           | retval: void  | param: NULL            |
+
+bool createThread(_fn fn, char name[], int priority);  // Function to Create Task/Threads.      | retval: bool  | param: Pointer To Task | param: Task Name | param: Task Priority |
+
+void destroyThread(_fn fn);                            // Function to Destroy Task/Threads.     | retval: void  | param: Pointer To Task |
+
+void setThreadPriority(_fn fn, uint8_t priority);      // Function to Destroy Task/Threads.     | retval: void  | param: Task Priority   |
+
+void yield();                                          // Function to Initialize RTOS.          | retval: void  | param: NULL            |
+
+void sleep(const uint32_t tick);                       // Function to set sleep time Interval   | retval: void   | param: Value of sleep |
+
+uint32_t ret_R0(void);                                 // Function to get value of 1st Argument | retval: uint32 | param: NULL           |
+
+uint32_t ret_R1(void);                                 // Function to get value of 2nd Argument | retval: uint32 | param: NULL           |
+
+uint32_t ret_R2(void);                                 // Function to get value of 3rt Argument | retval: uint32 | param: NULL           |
+
+uint8_t get_svcValue(void);                            // Function to get value of SVC Inst.    | retval: uint8  | param: NULL           |
+
+void setStackPt(void* func_stack);                     // Function to set System Stack Pointer  | retval: void   | param: PID To Task    |
+
+uint32_t* getStackPt();                                // Function to get Stack Pointer         | retval: uint32 | param: NULL           |
 
 
-// Synchronization and semaphore functions
+// Kernel Synchronization and semaphore functions
 struct semaphore* \
 createSemaphore(char* semName, uint8_t count);         // Function to Create Semaphores         | retval: structure pointer to sem  | param: Pointer to Sem |
+
 void wait(struct semaphore *pSemaphore);               // Function to set Wait for a Semaphore  | retval: void                      | param: Pointer to Sem |
+
 void post(struct semaphore *pSemaphore);               // Function to set Post for a Semaphore  | retval: void                      | param: Pointer to Sem |
 
 
@@ -300,38 +315,40 @@ void post(struct semaphore *pSemaphore);               // Function to set Post f
 
 
 // Kernel Variables
-uint8_t taskCurrent = 0;                               // Index of last dispatched task
-uint8_t taskCount   = 0;                               // Total number of valid tasks
-uint32_t stack[MAX_TASKS][256];                        // 1024 byte stack for each thread
-uint8_t semaphoreCount = 0;                            // Store Semaphore Count value
-uint32_t* SystemStackPt;                               // Pointer to the Main Stack pointer
+uint8_t taskCurrent = 0;                     // Index of last dispatched task
+uint8_t taskCount   = 0;                     // Total number of valid tasks
+uint32_t stack[MAX_TASKS][256];              // 1024 byte stack for each thread
+uint8_t semaphoreCount = 0;                  // Store Semaphore Count value
+uint32_t* SystemStackPt;                     // Pointer to the Main Stack pointer
+
 
 // Loop Variables
-uint8_t i, j, k  = 0;                                  // Used in svcisr for loop
+uint8_t i, j, k  = 0;                        // Used in svcisr for loop
+
 
 // SVC Variables
-uint32_t* PC_VAL = 0;                                  // Used in svcisr for storing the program counter value, for inline ASM implementation of stack
-uint8_t svc_value = 0;                                 // Value of service call by SVC instruction
-uint32_t task_pid = 0;                                 // User for storing task PID in svcISR
+uint32_t* PC_VAL = 0;                        // Used in svcisr for storing the program counter value, for inline ASM implementation of stack
+uint8_t svc_value = 0;                       // Value of service call by SVC instruction
+uint32_t task_pid = 0;                       // User for storing task PID in svcISR
+
 
 // Time Calculation Variables
-uint32_t startTime        = 0;                         // User for storing start time of thread
-uint32_t stopTime         = 0;                         // User for storing stop time of thread
-uint32_t totalTime        = 0;                         // User for storing total time taken by thread in given timeslice (80 ms in SytickISR)
-uint16_t measureTimeSlice = 0;                         // User for storing value of measurement time slice in SystickISR
+uint32_t startTime        = 0;               // User for storing start time of thread
+uint32_t stopTime         = 0;               // User for storing stop time of thread
+uint32_t totalTime        = 0;               // User for storing total time taken by thread in given timeslice (80 ms in SytickISR)
+uint16_t measureTimeSlice = 0;               // User for storing value of measurement time slice in SystickISR
 
 
 // Structure Variables (see structure above in Kernel defines and Data Structures )
+struct _tcb tcb[MAX_TASKS] = {0};            // Structure array for thread control block DS
+struct osScheduler scheduler;                // Structure Variable to osScheduler Structure
 
-struct _tcb tcb[MAX_TASKS] = {0};                      // Structure array for thread control block DS
-struct osScheduler scheduler;                          // Structure Variable to osScheduler Structure
+struct semaphore *SemaphorePt;               // Pointer to SemaphorePt Semaphore, declared in kernel space
 
-struct semaphore *SemaphorePt;                         // Pointer to SemaphorePt Semaphore, declared in kernel space
-
-struct semaphore *keyPressed;                          // Pointer to keyPressed Semaphore, declared at user space
-struct semaphore *keyReleased;                         // Pointer to keyReleased Semaphore, declared at user space
-struct semaphore *flashReq;                            // Pointer to flashReq Semaphore, declared at user space
-struct semaphore *resource;                            // Pointer to resource Semaphore, declared at user space
+struct semaphore *keyPressed;                // Pointer to keyPressed Semaphore, declared at user space
+struct semaphore *keyReleased;               // Pointer to keyReleased Semaphore, declared at user space
+struct semaphore *flashReq;                  // Pointer to flashReq Semaphore, declared at user space
+struct semaphore *resource;                  // Pointer to resource Semaphore, declared at user space
 
 
 
@@ -433,49 +450,41 @@ struct semaphore *resource;                            // Pointer to resource Se
 //*****************************************************************************//
 
 //Delay and Blocking Functions
-void waitMicrosecond(uint32_t us);                     // Microsecond Delay Function      | retval: void   | param: NULL      |
+void waitMicrosecond(uint32_t us);                     //
 
 
-// UART IO Control functions
-void putcUart0(const char c);                          // Function to Print Char through UART0   | retval: void | param: character            |
-void putsUart0(const char* str);                       // Function to Print String through UART0 | retval: void | param: pointer to character |
-char getcUart0(void);                                  // Function to get value through UART0    | retval: void | param: void                 |
-void putnUart0(uint32_t Number);                       // Function to Print number through UART0 | retval: void | param: uint32_t             |
+//UART IO Control functions
+void putcUart0(const char c);                          //
+void putsUart0(const char* str);                       //
+char getcUart0(void);                                  //
+void putnUart0(uint32_t Number);                       //
+void clear_screen(void);                               //
+void command_line(void);                               //
+void set_cursor(uint32_t Line, uint32_t Cols);         //
 
 
-// VT100 Terminal Control Functions
-void clear_screen(void);                               // Function which clears the terminal     | retval: void | param: void            |
-void mov_right(uint16_t val);                          // Moves the Cursor Right in Terminal     | retval: void | param: Cursor position |
-void set_cursor(uint32_t Line, uint32_t Cols);         // Sets Cursor position in Terminal       | retval: void | param: Line value      | param: Column Value |
+//String functions
+uint8_t uSTRCMP(char *string_1, char *string_2);
+uint8_t uSTRLEN(const char *string);
+void uSTRCPY(char *string_dest, char *string_src);
+void parse_string(void);
+int8_t is_command(char* command, uint8_t arg);
 
-// String functions
-uint8_t uSTRLEN(const char *string);                   // Function to calculate string length    | retval: void | param: string      |
-uint8_t uSTRCMP(char *string_1, char *string_2);       // Function to compare two strings        | retval: void | param: string 1    | param: string 2 |
-void uSTRCPY(char *string_dest, char *string_src);     // Function to copy string to destination | retval: void | param: destination | param: source   |
-
-// Shell / CLI functions
-void command_line(void);                               // Command line function to take inputs from user | retval: void                 | param: void |
-void parse_string(void);                               // Function to parse strings entered by user user | retval: void                 | param: void |
-int8_t is_command(char* command, uint8_t arg);         // Function to enter valid verbs as commands      | retavl: -1(Fail), 1(Success) | param: verb | param: argument count |
 
 //Project Command Functions
-void project_info(void);                               // Prints the info of the project                   | retval: void | param: void      |
-int8_t command_search(void);                           // Function to search for the command               | retval: void | param: void      |
-void TIVA_shell(void);                                 // Shell Interpretor / CLI commands function        | retval: void | param: void      |
-void getTaskPid(void);                                 // Function that prints the the task PID            | retval: void | param: void      |
-void getProcessStatus(void);                           // Task manager function, displays process          | retval: void | param: void      |
-void getIpcs(void);                                    // Prints the Inter process comms table             | retval: void | param: void      |
-uint8_t readPbs(void);                                 // Functions for reading the testbench push buttons | retval: void | param: void      |
-void getTaskStatus(char *threadName);                  // Prints the detailed status of the function       | retval: void | param: task name |
-
-//Buffer Reset Control Functions
-void reset_buffer(void);                               // Functions which resets local buffer of command line input | retval: void | param: void |
-void reset_new_string(void);                           // Functions for reading the testbench push buttons          | retval: void | param: void |
+void project_info(void);
+int8_t command_search(void);
+void TIVA_shell(void);
+void getTaskPid(void);
+void getProcessStatus(void);
+void getIpcs(void);
+void getTaskStatus(char *threadName);
+uint8_t readPbs(void);
 
 
 //Buffer Reset Control Functions
-void reset_buffer(void);                               // Functions for reseting the local string buffer for CLI | retval: void | param: void |
-void reset_new_string(void);                           // Helper function called by the above function           | retval: void | param: void |
+void reset_buffer(void);
+void reset_new_string(void);
 
 
 //*****************************************************************************//
@@ -503,11 +512,10 @@ uint8_t args_updated = 0;                              // Variable for indexing 
 
 
 // Local Directory for commands
-char cmd_DB [20][15] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help", "statof", "pi", "info"};
+char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help", "statof", "pi", "info"};
 
 // Local Directory for Thread/Task PIDs
 void *tsk_DB[MAX_TASKS] = {0};
-char tskName_DB[MAX_TASKS][20] = {0};
 
 
 //*****************************************************************************//
@@ -525,9 +533,9 @@ void rtosInit()
     taskCount = 0;
 
     // Default States
-    scheduler.priorityEnable   = 1;                                                            // Enable Condition for Priority Scheduler
-    scheduler.priorityInherit  = 1;                                                            // Enable Condition for Priority Inheritance
-    scheduler.preemptiveEnable = 1;                                                            // Enable Condition for Preemption
+    scheduler.priorityEnable   = 1;
+    scheduler.priorityInherit  = 1;
+    scheduler.preemptiveEnable = 1;
 
 
     // clear out tcb records
@@ -561,27 +569,27 @@ int rtosScheduler()
             task = 0;
 
         // Priority Scheduling
-        if(scheduler.priorityEnable == 1)                                                        // Check if Priority condition is enabled (Default)
+        if(scheduler.priorityEnable == 1)
         {
-           if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)                  // If yes and tasks are read and in unrun states
+            if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)
             {
-                if(tcb[task].skips < tcb[task].currentPriority)                                  // Increment skip counts till the time it doesn't become equal to priority value
+                if(tcb[task].skips < tcb[task].currentPriority)
                 {
-                    tcb[task].skips++;                                                           // Increment skips
+                    tcb[task].skips++;
                     ok = false;
                 }
-                else if(tcb[task].skips >= tcb[task].currentPriority)                            // If greater than equal to current priority value
+                else if(tcb[task].skips >= tcb[task].currentPriority)
                 {
-                    tcb[task].skips = 0;                                                         // Clear Skip count
-                    ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);     // Update value of ok to get of the loop
+                    tcb[task].skips = 0;
+                    ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
                 }
             }
         }
         // Round-Robin Scheduling
-        else                                                                                     // In Else condition it goes round-robin where everyone gets a fair chance
+        else
         {
-            tcb[task].skips = 0;                                                                 // Clear Skip counts if previously coming from Priority Scheduler
-            ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);             // Update value of ok to get of the loop
+            tcb[task].skips = 0;
+            ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);
         }
 
     }
@@ -595,30 +603,25 @@ void rtosStart()
     // REQUIRED: add code to call the first task to be run
     _fn fn;
 
-    // Store Thread/Task PIDs in Local Database
+    // Store Thread/Task PIDs in Local Directory
     for(i = 0; i<MAX_TASKS; i++)
     {
-        tsk_DB[i] = tcb[i].pid;                                                                  //
-    }
-
-    // Store Thread/Task Name in Local Database
-    for(i = 0; i<MAX_TASKS; i++)
-    {
-        uSTRCPY(tskName_DB[i],tcb[i].name);                                                      //
+        tsk_DB[i] = tcb[i].pid;
     }
 
     // Add code to initialize the SP with tcb[task_current].sp;
-    SystemStackPt  = getStackPt();                                                               // Store the first value of System/processor SP
+    SystemStackPt  = getStackPt();
 
-    taskCurrent = rtosScheduler();                                                               // Run Scheduler
+    taskCurrent = rtosScheduler();
 
-    setStackPt(tcb[taskCurrent].sp);                                                             // Set SP to thread SP
+    setStackPt(tcb[taskCurrent].sp);
 
-    fn = (_fn)tcb[taskCurrent].pid;                                                              // Store the PID
+    fn = (_fn)tcb[taskCurrent].pid;
 
-    tcb[taskCurrent].state = STATE_READY;                                                        //
+    tcb[taskCurrent].state = STATE_READY;
 
-    (*fn)();                                                                                     //
+
+    (*fn)();
 
 
 }
@@ -716,7 +719,7 @@ void yield()
 // execution yielded back to scheduler until time elapses using pendsv
 // push registers, set state to delayed, store timeout, call scheduler, pop registers,
 // return to new function (separate unrun or ready processing)
-void sleep(uint32_t tick)
+void sleep(const uint32_t tick)
 {
     __asm(" SVC #101");
 }
@@ -752,24 +755,25 @@ void systickIsr(void)
         {
             tcb[taskN].ticks--;
 
-               if(tcb[taskN].ticks == 0)
-                    tcb[taskN].state = STATE_READY;
-
+//                if(tcb[taskN].ticks == 0)
+//                    tcb[taskN].state = STATE_READY;
         }
+        else if(tcb[taskN].ticks == 0 && tcb[taskN].state == STATE_DELAYED)
+            tcb[taskN].state = STATE_READY;
     }
 
 
-    // CPU Usage run measurement for different threads
+    // Percentage run measurement for different threads
     measureTimeSlice++;
 
-    if(measureTimeSlice == 100)
+    if(measureTimeSlice == 80)
     {
 
 #if 0
-        // Measure time when entered in systickISR if entered before task switch
-        stopTime = TIMER1_TAV_R;
-        TIMER1_CTL_R &= ~TIMER_CTL_TAEN;
-        processTime[taskCurrent].runTime = stopTime - startTime;
+//        // Measure time when entered in systickISR if entered before task switch
+//        stopTime = TIMER1_TAV_R;
+//        TIMER1_CTL_R &= ~TIMER_CTL_TAEN;
+//        processTime[taskCurrent].runTime = stopTime - startTime;
 #endif
 
         // Filter run time data (Moving Average)
@@ -820,29 +824,34 @@ void systickIsr(void)
 // REQUIRED: process UNRUN and READY tasks differently
 void pendSvIsr(void)
 {
-    __asm(" PUSH {R4-R11}");                                              // Push Register list
+    __asm(" PUSH {R4-R11}");                                               // Push Register list
+    //__asm(" MOV R6,LR");                                                 // Save value of LR, Optional if you don't want hardcode value of LR:0xFFFFFFF9, only for inline ASM implementation
 
-    tcb[taskCurrent].sp = getStackPt();                                   // save stack pointer in tcb
-    setStackPt(SystemStackPt);                                            // set stack pointer to System Stack pointer
+
+    tcb[taskCurrent].sp = getStackPt();                                    // save stack pointer in tcb
+    setStackPt(SystemStackPt);                                             // set stack pointer to System Stack pointer
 
 
     // stop the timer
-    stopTime = TIMER1_TAV_R;                                              // Save Final Value of Timer register
-    TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                      // Stop Timer
-    TIMER1_TAV_R = 0;                                                     // Set Timer Zero
-
+    stopTime = TIMER1_TAV_R;                                               // Save Final Value of Timer register
+    TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                       // Stop Timer
+    TIMER1_TAV_R = 0;                                                      // Set Timer Zero
 
     // Calculate time difference
-    if(tcb[taskCurrent].state != STATE_INVALID)                           // Calculate for everyone but Invalid States
-        processTime[taskCurrent].runTime = stopTime - startTime;          // Store Time Difference
+    if(tcb[taskCurrent].state != STATE_INVALID)
+    {
+        processTime[taskCurrent].runTime = stopTime - startTime;           // Store Time Difference
 
+        //stopTime = 0;
+        //startTime = 0;
+    }
 
     // No calculations during blocked state
     if(tcb[taskCurrent].state == STATE_BLOCKED)
     {
-        processTime[taskCurrent].taskPercentage = 0;                      // Clear percentage time
-        processTime[taskCurrent].filterTime     = 0;                      // clear averaged time
-        processTime[taskCurrent].runTime        = 0;                      // clear task run time
+        processTime[taskCurrent].taskPercentage = 0;                      //
+        processTime[taskCurrent].filterTime     = 0;                      //
+        processTime[taskCurrent].runTime        = 0;                      //
     }
 
 
@@ -905,17 +914,13 @@ void pendSvIsr(void)
 
 
 // Function for getting the value of SVC instruction
-// Offset was calculated by seeing the previous value of Program counter when on,
-// respective SVC instruction (SVC, #100...) using a breakpoint and then finding that,
-// value, [when reached to this function (putting a break point)], in SP further offset,
-// by 2 since SVC is 2 byte instruction.
 uint8_t get_svcValue(void)
 {
-    __asm(" MOV  R0, SP"   );                                             // Move SP to R0,     (address)
-    __asm(" ADD  R0, #48"  );                                             // ADD offset   ,     (address)
-    __asm(" LDR  R0, [R0]" );                                             // Load offset to R0  (value)
-    __asm(" SUBS R0, #2"   );                                             // Subtract 2 from R0 (value), 2 byte offset of SVC instruction
-    __asm(" LDR  R0, [R0]" );                                             // Load value to R0   (value)
+    __asm(" MOV  R0, SP"   );
+    __asm(" ADD  R0, #48"  );
+    __asm(" LDR  R0, [R0]" );
+    __asm(" SUBS R0, #2"   );
+    __asm(" LDR  R0, [R0]" );
     __asm(" BX   LR"       );
 
     return 0;
@@ -959,7 +964,7 @@ void svCallIsr(void)
 
     svc_value = get_svcValue();                                                                     // Get SVC value
 
-    switch(svc_value)                                                                               // Switch Case for SVC value
+    switch(svc_value)                                                                               //
     {
 
     case svcYIELD:
@@ -997,15 +1002,15 @@ void svCallIsr(void)
                       tcb[taskCurrent].semaphore = NULL;                                            // Clear Before storing
                       tcb[taskCurrent].semaphore = SemaphorePt;                                     // Store the pointer to semaphore, record the semaphore
 
-                      if(scheduler.priorityInherit == 1)                                            // Priority Inheritance Support
+                      if(scheduler.priorityInherit == 1)                                            //
                       {
                           for(i=0; i<MAX_TASKS; i++)                                                // Find previous user of this semaphore
                           {
-                              if(tcb[i].semaphore == tcb[taskCurrent].semaphore)                    // check who else uses the same semaphore, while current task is blocked
+                              if(tcb[i].semaphore == tcb[taskCurrent].semaphore)                    //
                               {
-                                  if(tcb[i].currentPriority > tcb[taskCurrent].currentPriority)     // if found then check if priority value is greater than task current
+                                  if(tcb[i].currentPriority > tcb[taskCurrent].currentPriority)     //
                                   {
-                                      tcb[i].currentPriority = tcb[taskCurrent].currentPriority;    // if yes, then give the priority value of task current(lower) to other user
+                                      tcb[i].currentPriority = tcb[taskCurrent].currentPriority;    //
                                   }
                                   break;
                               }
@@ -1050,8 +1055,7 @@ void svCallIsr(void)
                  break;
 
     case svcKILL:
-                 task_pid = R0;                                                                     // Value of argument from destroyThread(arg);
-
+                 task_pid = R0;
                  for(i=0; i<MAX_TASKS; i++)
                  {
                      if(tcb[i].pid == (_fn)task_pid)                                                // Search for requested task in list of PIDs
@@ -1083,20 +1087,20 @@ void svCallIsr(void)
                                  {
                                      for(j=0; j<MAX_TASKS; j++)
                                      {
-                                         if(SemaphorePt->processQueue[0] == (uint32_t)tcb[j].pid)   // See if someone is waiting in queue,
+                                         if(SemaphorePt->processQueue[0] == (uint32_t)tcb[j].pid)   // See if someone is waiting in queue, release it
                                          {
-                                             SemaphorePt->processQueue[0] = 0;                      // If yes, then release the task from blocked state
+                                             SemaphorePt->processQueue[0] = 0;                      //
 
-                                             tcb[j].state = STATE_READY;                            // Make State as ready
+                                             tcb[j].state = STATE_READY;                            //
 
                                              // Shift queue up
                                              for(k=0; k<SemaphorePt->queueSize; k++)
                                              {
                                                  SemaphorePt->processQueue[k] =
-                                                         SemaphorePt->processQueue[k+1];            // Shift process queue
+                                                         SemaphorePt->processQueue[k+1];            //
                                              }
 
-                                             SemaphorePt->queueSize --;                             // Decrement Queue
+                                             SemaphorePt->queueSize --;                             //
                                              break;
                                          }
 
@@ -1109,24 +1113,16 @@ void svCallIsr(void)
 
                          }// check semaphore if statement
 
-                         task_pid = 0;                                                              // Clear local task PID
+                         task_pid = 0;                                                              // Clear local
 
-                         // Clear time calculation values
-                         processTime[i].runTime        = 0;                                         // Clear Run-Time value
-                         processTime[i].taskPercentage = 0;                                         // Clear Task Percentage value
-                         totalTime = 0;                                                             // Clear Total time for CPU% usage value
-
-                         // Clear tcb members
                          tcb[i].pid       = NULL;                                                   // Make pid = 0 so that it can removed from found state in createthread()
-                         tcb[i].sp        = NULL;                                                   // Clear Stack pointer
-                         tcb[i].semaphore = NULL;                                                   // Clear Semaphore record
-                         tcb[i].priority  = 0;                                                      // Clear Priority record
-                         tcb[i].currentPriority  = 0;                                               // Clear Current priority Record
-                         tcb[i].skips     = 0;                                                      // Clear skip counts
+                         tcb[i].sp        = NULL;                                                   //
+                         tcb[i].semaphore = NULL;                                                   //
 
-                         for(j = 0; j<16; j++)                                                      // Clear Name
-                             tcb[i].name[j] = '\0';
+                         processTime[i].runTime        = 0;                                         //
+                         processTime[i].taskPercentage = 0;                                         //
 
+                         totalTime = 0;                                                             //
                          break;
                      }// if Statement end
                  }
@@ -1648,22 +1644,14 @@ void reset_new_string(void)
 {
     uint8_t i = 0;
     uint8_t j = 0;
-    uint8_t len = 0;
 
-
-    for (i = 0; i < MAX_ARGS; i++)
+    for (i = 0; i < args_updated; i++)
     {
-        len = uSTRLEN(new_string[i]);
-
-        for (j = 0; j < len; j++)
+        for (j = 0; j < uSTRLEN(new_string[i]); j++)
         {
             new_string[i][j] = '\0';
         }
     }
-
-    args_updated = 0;
-    args_no      = 0;
-    args_str     = 0;
 
 }
 
@@ -1671,11 +1659,8 @@ void reset_new_string(void)
 void reset_buffer(void)
 {
     uint8_t i = 0;
-    uint8_t len = 0;
 
-    len = uSTRLEN(string);
-
-    for (i = 0; i < len; i++)
+    for (i = 0; i < uSTRLEN(string); i++)
     {
         string[i] = '\0';
         a[i] = '\0';
@@ -1684,6 +1669,9 @@ void reset_buffer(void)
         buff_int[i] = '\0';
     }
 
+    args_updated = 0;
+    args_no      = 0;
+    args_str     = 0;
 
     reset_new_string();
 
@@ -1716,7 +1704,7 @@ void project_info(void)
     putsUart0("\r\n");
 
     putsUart0("\r\n");
-    putsUart0("TIP:Type \"help\" to list available commands \r\n");                                                        // Display Help command message for user
+    putsUart0("TIP:Type \"help\" to list available commands \r\n");
     putsUart0("\r\n");
 
 }
@@ -1766,21 +1754,20 @@ void TIVA_shell(void)
     if(is_command("help", 0) == 1)
     {
         putsUart0("\r\n");
-        putsUart0("List of available commands:- \r\n");                                         // Display Message for List of commands to the user
+        putsUart0("List of available commands:- \r\n");
         putsUart0("\r\n");
 
-        putsUart0("ps       : Display Process Status                                    \r\n"); // Display Process Status
-        putsUart0("sched    : [rr],[priority], Select Round-Robin or Priority Scheduler \r\n"); // For selecting between round-robin scheduling or priority scheduling
-        putsUart0("echo     : [args....]                                                \r\n"); // Test echo command
-        putsUart0("reboot   : System Reboot                                             \r\n"); // Reboots the RTOS
-        putsUart0("clear    : Clear Terminal Screen                                     \r\n"); // Clear Terminal Screen
-        putsUart0("preempt  : [on/off], Preemption On/Off                               \r\n"); // Turn preemptive Scheduling On or Off
-        putsUart0("pi       : [on/off], Priority Inheritance On/Off                     \r\n"); //
-        putsUart0("pidof    : [\"task name\"], Display PID of Task                      \r\n"); //
-        putsUart0("ipcs     : Inter-Process Communication Status                        \r\n"); //
-        putsUart0("kill     : [PID], Kill Task                                          \r\n"); //
-        putsUart0("statof   : [\"task name\"], Display Status of Task                   \r\n"); // For Debug
-        putsUart0("<Task> & : \"Task Name\" \"&\", to create new task                   \r\n"); //
+        putsUart0("ps      : Display Process Status                                    \r\n");
+        putsUart0("sched   : [rr],[priority], Select Round-Robin or Priority Scheduler \r\n");
+        putsUart0("echo    : [args....]                                                \r\n");
+        putsUart0("reboot  : System Reboot                                             \r\n");
+        putsUart0("clear   : Clear Terminal Screen                                     \r\n");
+        putsUart0("preempt : [on/off], Preemption On/Off                               \r\n");
+        putsUart0("pi      : [on/off], Priority Inheritance On/Off                     \r\n");
+        putsUart0("pidof   : [\"task name\"], Display PID of Task                      \r\n");
+        putsUart0("ipcs    : Inter-Process Communication Status                        \r\n");
+        putsUart0("kill    : [PID], Kill Task                                          \r\n");
+        putsUart0("statof  : [\"task name\"], Display Status of Task                   \r\n");    // For Debug
 
 
     }
@@ -2037,42 +2024,41 @@ void TIVA_shell(void)
     if (uSTRCMP(new_string[1], "&") == 0)
     {
 
-        bool fnd = false;
+        bool nf = false;
 
-        // Check in thread DS
         for(i=0; i<MAX_TASKS; i++)
         {
             if(uSTRCMP(new_string[0], tcb[i].name) == 0)
             {
 
-                fnd = true;
-                putsUart0("Task already lives can't create \r\n");
-                break;
 
-            }
-        }
-
-        // if not found check in local DB
-        if(!fnd)
-        {
-            for(i=0; i<MAX_TASKS; i++)
-            {
-                if(uSTRCMP(new_string[0], tskName_DB[i]) == 0)
+                if(tcb[i].pid != 0)
                 {
-                    fnd = true;
-                    putsUart0("Task already killed before, lets create \r\n");
-                    createThread((_fn)tsk_DB[i], tskName_DB[i], 0);
+                    putsUart0("Task already lives can't create \r\n");
+                    break;
+                }
+                else
+                {
+                    createThread((_fn)tsk_DB[i], tcb[i].name, 0);
                     break;
                 }
             }
+            else
+                nf = true;
         }
-
-        // Still not found
-        if(fnd == false)
-            putsUart0("Task Not Found \r\n");
-
-
+        if(nf)
+        {
+            putsUart0("\r\n");
+            putsUart0("ERROR:Task Not Found, USAGE: <Task Name> \"&\" \r\n");
+            //putsUart0("Run Command \"ps\" for PID list of running Tasks \r\n");
+        }
     }
+//    else if (is_command("statof", 1) == -1)
+//    {
+//        putsUart0("\r\n");
+//        putsUart0("ERROR:\"statof\" Argument Missing, USAGE: statof [\"thread name\"] \r\n");
+//        putsUart0("\r\n");
+//    }
 
 
     //************************************************** TivaShell Function End ************************************************************************//
@@ -2087,9 +2073,8 @@ void getTaskPid(void)
 
     for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
     {
-        if(uSTRCMP(new_string[1], tskName_DB[taskNo]) == 0)
+        if(uSTRCMP(new_string[1], tcb[taskNo].name) == 0)
         {
-            putsUart0("PID:");
             putnUart0((uint32_t)tcb[taskNo].pid);
             putsUart0("\r\n");
         }
@@ -2272,7 +2257,7 @@ void getIpcs(void)
     // Title
     putsUart0("\033[33;1m");
     putsUart0("Sem Name"); mov_right(5);putsUart0("Sem Count"); mov_right(3);putsUart0("Queue Size"); mov_right(3);putsUart0("Running");
-    mov_right(4);putsUart0("Waiting"); putsUart0("\r\n"); putsUart0("\033[0m");
+    mov_right(5);putsUart0("Waiting"); putsUart0("\r\n"); putsUart0("\033[0m");
 
 
     for(semNo=0; semNo < semaphoreCount; semNo++)                                                              // Find Max Column Width
@@ -2328,7 +2313,7 @@ void getIpcs(void)
             }
         }
 
-        mov_right(1);
+        mov_right(3);
         for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                                               // Print Tasks that are waiting
         {
             if(&semaphores[semNo] == tcb[taskNo].semaphore)
@@ -2338,9 +2323,10 @@ void getIpcs(void)
                 {
                     if(semaphores[semNo].processQueue[q] == (uint32_t)tcb[taskNo].pid)
                     {
-                            putsUart0(" ");
-                            putsUart0(tcb[taskNo].name);
+                        putsUart0(tcb[taskNo].name);
 
+                        if(q > 0)
+                            putsUart0("; ");
                     }
                 }
 //                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
