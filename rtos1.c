@@ -223,7 +223,7 @@ struct _tcb
     char     name[16];                       // name of task used in ps command
     void     *semaphore;                     // pointer to the semaphore that is blocking the thread
     uint8_t   skips;                         // Skip count for priority calculations
-    //uint64_t threadTime;
+    uint32_t threadTime;
 
 } tcb[MAX_TASKS];
 
@@ -264,13 +264,14 @@ uint32_t stopTime;
 struct timeCalc
 {
     uint32_t runTime;
-    uint32_t totalTime;
+    //uint32_t totalTime1;
     uint32_t filterTime;
     uint32_t taskPercentage;
 
 }processTime[MAX_TASKS];
 
-uint16_t t_cnt = 0;
+uint16_t measureTimeSlice = 0;
+uint32_t totalTime = 0;
 
 //*****************************************************************************//
 //                                                                             //
@@ -656,7 +657,6 @@ void systickIsr(void)
     uint32_t taskN;
     uint8_t tsk;
     uint8_t firstUpdate = 1;
-    uint32_t totalTime = 0;
 
     // sleep function support
     for(taskN=0; taskN < MAX_TASKS; taskN++)
@@ -669,12 +669,18 @@ void systickIsr(void)
             tcb[taskN].state = STATE_READY;
     }
 
-    t_cnt++;
-    if(t_cnt == 100)
+    measureTimeSlice++;
+    if(measureTimeSlice == 80)
     {
 
+        //
+//        stopTime = TIMER1_TAV_R;
+//        TIMER1_CTL_R &= ~TIMER_CTL_TAEN;
+//
+//        processTime[taskCurrent].runTime = stopTime - startTime;
+
         // Filter data
-        for(tsk=0; tsk<10; tsk++)
+        for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             if(firstUpdate)
             {
@@ -684,33 +690,35 @@ void systickIsr(void)
             else
                 processTime[tsk].filterTime = processTime[tsk].filterTime * 0.9 + processTime[tsk].runTime * 0.1;
 
-            //totalTime = totalTime + processTime[tsk].filterTime;
-
         }
 
-        // Calculate total time
-        for(tsk=0; tsk<taskCount; tsk++)
+        totalTime = 0;
+
+        //Calculate total time
+        for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             totalTime = totalTime + processTime[tsk].filterTime;
+            //processTime[tsk].totalTime1 = processTime[tsk].totalTime1 + processTime[tsk].filterTime;
 
         }
 
         // Calculate cpu %age
-        for(tsk=0; tsk<taskCount; tsk++)
+        for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             processTime[tsk].taskPercentage = (processTime[tsk].filterTime * 10000) / totalTime;
-        }
 
-        t_cnt = 0;
-
-        for(tsk=0; tsk<10; tsk++)
-        {
             processTime[tsk].runTime = 0;
-            totalTime = 0;
         }
+
+
+//        for(tsk=0; tsk<MAX_TASKS; tsk++)
+//        {
+//            processTime[tsk].runTime = 0;
+//        }
+
+        measureTimeSlice = 0;
 
     }
-
 
     // Preemptive scheduler support
     // Make sure there is at least one task with READY state as this is the first ISR to run,
@@ -720,66 +728,94 @@ void systickIsr(void)
 
 }
 
-uint32_t time_diff = 0;
-
 
 // REQUIRED: in coop and preemptive, modify this function to add support for task switching
 // REQUIRED: process UNRUN and READY tasks differently
 void pendSvIsr(void)
 {
-    __asm(" PUSH {R4-R11}");                      // Push reg list
-    __asm(" MOV R4,LR");                          // Save value of LR
+    __asm(" PUSH {R4-R11}");                                               // Push Register list
+    //__asm(" MOV R6,LR");                                                 // Save value of LR, Optional if you don't want hardcode value of LR:0xFFFFFFF9, only for inline ASM implementation
 
 
-    tcb[taskCurrent].sp = getStackPt();           // save stack pointer in tcb
-    setStackPt(SystemStackPt);                    // set stack pointer to System Stack pointer
+    tcb[taskCurrent].sp = getStackPt();                                    // save stack pointer in tcb
+    setStackPt(SystemStackPt);                                             // set stack pointer to System Stack pointer
 
 
     // stop the timer
-    if(tcb[taskCurrent].state != STATE_BLOCKED && tcb[taskCurrent].state != STATE_INVALID)
-        stopTime = TIMER1_TAV_R;
+    stopTime = TIMER1_TAV_R;                                               // Save Final Value of Timer register
+    TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                       // Stop Timer
+    TIMER1_TAV_R = 0;                                                      // Set Timer Zero
 
     // Calculate time diff
-    if(stopTime > startTime && tcb[taskCurrent].state != STATE_BLOCKED && tcb[taskCurrent].state != STATE_INVALID)
+    if(tcb[taskCurrent].state != STATE_INVALID)
+    {
         processTime[taskCurrent].runTime = stopTime - startTime;
 
-
-    taskCurrent = rtosScheduler();                // task current = rtos scheduler
-
-
-    // start the timer
-    if(tcb[taskCurrent].state != STATE_BLOCKED && tcb[taskCurrent].state != STATE_INVALID)
-    {
-        TIMER1_TAV_R = 0;
-        startTime = TIMER1_TAV_R;
+        //stopTime = 0;
+        //startTime = 0;
     }
 
-
-    if(tcb[taskCurrent].state == STATE_READY)
+    // No calcualtions during blocked state
+    if(tcb[taskCurrent].state == STATE_BLOCKED)
     {
-        setStackPt(tcb[taskCurrent].sp);
+        processTime[taskCurrent].taskPercentage = 0;
+        processTime[taskCurrent].filterTime    = 0;
+        processTime[taskCurrent].runTime       = 0;
+    }
 
-        __asm(" POP {R4-R11}");
+    taskCurrent = rtosScheduler();                                        // Call RTOS Scheduler to Switch Task
+
+
+
+    TIMER1_CTL_R |= TIMER_CTL_TAEN;                                       // Start the timer
+    startTime = TIMER1_TAV_R;                                             // Save initial Value of Timer register
+
+
+    if(tcb[taskCurrent].state == STATE_READY)                             // If in Ready State
+    {
+        setStackPt(tcb[taskCurrent].sp);                                  // Set Thread SP to Processor SP
+
+        __asm(" POP {R4-R11}");                                           // POP Register List
 
     }
 
-    else if(tcb[taskCurrent].state == STATE_UNRUN)// unrun
+    else if(tcb[taskCurrent].state == STATE_UNRUN)                        // If in Unrun State, give task a new stack, as if its already is running
     {
-        tcb[taskCurrent].state = STATE_READY;
+        tcb[taskCurrent].state = STATE_READY;                             // Make State as Ready
+
+        // In-line ASM Implementation
+#if 0
         setStackPt(tcb[taskCurrent].sp);
 
-        __asm(" MOV R0, #0x01000000" );        //0x01000000. xpsr
-        __asm(" PUSH {R0}"           );        //push xpsr
-        PC_VAL = tcb[taskCurrent].pid;         //pc value, pc at thread, pid of thread
-        __asm(" PUSH {R0}"           );        //push pc
-        __asm(" PUSH {LR}"           );        //push lr
-        __asm(" PUSH {R12}"          );        //push r12
-        __asm(" PUSH {R0-R3}"        );        //push r0 to r3
+        __asm(" MOV R0, #0x01000000" );                                   // 0x01000000. xpsr
+        __asm(" PUSH {R0}"           );                                   // push xpsr
+        PC_VAL = tcb[taskCurrent].pid;                                    // pc value, pc at thread, pid of thread
+        __asm(" PUSH {R0}"           );                                   // push pc
+        __asm(" PUSH {LR}"           );                                   // push lr
+        __asm(" PUSH {R12}"          );                                   // push r12
+        __asm(" PUSH {R0-R3}"        );                                   // push r0 to r3
 
-        __asm(" PUSH {R4}"           );        //push value of LR, saved in r4 at starting of pendsv
-        __asm(" PUSH {R3}"           );        //push compiler reg
+        __asm(" MOVW R4, #0xFFF9"    );
+        __asm(" MOVT R4, #0xFFFF"    );
+        __asm(" PUSH {R4}"           );                                   // push value of LR, saved in r4 at starting of pendsv
+        __asm(" PUSH {R3}"           );                                   // push compiler reg
 
+#else
+        // Putting values in Thread Stack Better for Debugging
+        stack[taskCurrent][255] = 0x01000000;                             // XPSR,
+        stack[taskCurrent][254] = (uint32_t)tcb[taskCurrent].pid;         // PC
+        stack[taskCurrent][253] = 15;                                     // LR, and debug value
+        stack[taskCurrent][252] = 14;                                     // R12, and debug value
+        stack[taskCurrent][251] = 13;                                     // R3, and debug value
+        stack[taskCurrent][250] = 12;                                     // R2, and debug value
+        stack[taskCurrent][249] = 11;                                     // R1, and debug value
+        stack[taskCurrent][248] = 10;                                     // R0, and debug value
+        stack[taskCurrent][247] = 0xFFFFFFF9;                             // Value of LR, for compiler push
+        stack[taskCurrent][246] = 9;                                      // Debug Value, for compiler push
 
+        tcb[taskCurrent].sp = &stack[taskCurrent][246];                   // Point Thread SP to stop of the thread Stack
+        setStackPt(tcb[taskCurrent].sp);                                  // Set Thread SP to processor SP
+#endif
         }
 
 }
@@ -918,7 +954,6 @@ void svCallIsr(void)
                              }
 
                              SemaphorePt->queueSize --;                                      // Decrement Queue Size
-                             //SemaphorePt->semKey = 0;
 
                              break;
                          }
@@ -990,8 +1025,9 @@ void svCallIsr(void)
                          tcb[i].pid = NULL;                                                  // Make pid = 0 so that it can removed from found state in createthread()
                          tcb[i].sp = NULL;                                                   //
                          tcb[i].semaphore = NULL;
-                         //SemaphorePt->semKey = 0;
-
+                         processTime[i].taskPercentage = 0;
+                         processTime[i].runTime = 0;
+                         totalTime = 0;
                          break;
                      }// if Statement end
                  }
@@ -1131,7 +1167,7 @@ void putcUart0(const char c)
 {
     while (UART0_FR_R & UART_FR_TXFF);
     UART0_DR_R = c;
-    //yield();
+    yield();
 }
 
 // Blocking function that writes a string when the UART buffer is not full
@@ -1208,6 +1244,7 @@ void putnUart0(uint32_t Number)
     {
         while (UART0_FR_R & UART_FR_TXFF);
         UART0_DR_R = NumBuff[d];
+        yield();
     }
 
 }
@@ -1402,7 +1439,7 @@ void parse_string(void)
     //Convert character into string blocks and tokenize these blocks with delimiters
     for (i = 0; i <= uSTRLEN(string); i++)
     {
-        if (string[i]== ' '|| string[i] == '\0' || string[i] == 9)
+        if (string[i]== ' '|| string[i] == '\0' || string[i] == 9 || DELIMS)
         {
             new_string[args_no][args_str] = 0;
             args_no++;
