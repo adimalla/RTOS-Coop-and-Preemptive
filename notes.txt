@@ -13,3 +13,10 @@ Date:03/13/2019 |Time:4:30 AM
   address of the function in the stack, which never changes.
   Better way to do it would be to take the PID from the SP value (LSB)?, No, the context is always saved even the stack pointer is the same
 
+Date:03/17/2019 |Time:3:48 AM
+* When Priorties are enabled, the debounce is bad
+* When preempt is off the tasks run slower, job distributed between Idle and LengthyFn
+* When preempt is on Idle has more CPU usage then Lengthy
+
+
+

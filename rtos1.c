@@ -75,6 +75,10 @@
 
 //*********** Versions ***************//
 //
+// Version 1.7 -(03/16/2019)
+// info:
+//      - cpu task runtime calculations added
+//
 // Version 1.5.5.2 -(03/14/2019)
 // info:
 //      - 'pi' (priority inheritance) functionality added.
@@ -149,6 +153,7 @@
 //************************************//
 
 
+
 //*****************************************************************************//
 //                                                                             //
 //              STANDARD LIBRARIES AND BOARD SPECIFIC HEADER FILES             //
@@ -164,26 +169,37 @@
 
 //*****************************************************************************//
 //                                                                             //
-//               RTOS Defines and Kernel Variables                             //
+//                  KERNEL DEFINES AND DATA STRUCTURES                         //
 //                                                                             //
 //*****************************************************************************//
 
-// function pointer
-typedef void (*_fn)();
+
+//******************* Semaphore Defines **********************//
+#define MAX_SEMAPHORES   5                   // Maximum number of semaphores
+#define MAX_QUEUE_SIZE   5                   // Maximum queue size
 
 
-// prototypes
-uint8_t get_svcValue(void);
-void setStackPt(void* func_stack);
-uint32_t* getStackPt();
 
-uint8_t readPbs(void);
+//******************* Task Defines **********************//
 
-// semaphore
-#define MAX_SEMAPHORES 5
-#define MAX_QUEUE_SIZE 5
+// Task/Thread States
+#define STATE_INVALID    0                   // No task
+#define STATE_UNRUN      1                   // Task has never been run
+#define STATE_READY      2                   // Has run, can resume at any time
+#define STATE_DELAYED    3                   // Has run, but now awaiting timer
+#define STATE_BLOCKED    4                   // Has run, but now blocked by semaphore
+
+#define MAX_TASKS        10                  // Maximum number of valid tasks
+
+// Processor Clocks
+#define CLOCKFREQ        40000000            // Main Clock/BUS Frequency
+#define SYSTICKFREQ      1000                // Systick timer Frequency
 
 
+
+//******************* Kernel Data Structures **********************//
+
+// Semaphore Data Structure
 struct semaphore
 {
     uint16_t count;                          // Store Semaphore count
@@ -193,42 +209,24 @@ struct semaphore
 
 } semaphores[MAX_SEMAPHORES];
 
-uint8_t semaphoreCount = 0;
-struct semaphore *keyPressed, *keyReleased, *flashReq, *resource, *SemaphorePt;
 
-// task
-#define STATE_INVALID    0                   // no task
-#define STATE_UNRUN      1                   // task has never been run
-#define STATE_READY      2                   // has run, can resume at any time
-#define STATE_DELAYED    3                   // has run, but now awaiting timer
-#define STATE_BLOCKED    4                   // has run, but now blocked by semaphore
-
-#define MAX_TASKS        10                  // maximum number of valid tasks
-#define CLOCKFREQ        40000000            // Main Clock/BUS Frequency
-#define SYSTICKFREQ      1000                // Systic timer Frequency
-
-uint8_t taskCurrent = 0;                     // index of last dispatched task
-uint8_t taskCount = 0;                       // total number of valid tasks
-
-uint32_t stack[MAX_TASKS][256];              // 1024 byte stack for each thread
-
+// Thread Control Block Data Structure
 struct _tcb
 {
-    uint8_t  state;                          // see STATE_ values above
-    void     *pid;                           // used to uniquely identify thread
-    void     *sp;                            // location of stack pointer for thread
-    int8_t   priority;                       // -8=highest to 7=lowest
-    int8_t   currentPriority;                // used for priority inheritance
-    uint32_t ticks;                          // ticks until sleep complete
-    char     name[16];                       // name of task used in ps command
-    void     *semaphore;                     // pointer to the semaphore that is blocking the thread
+    uint8_t  state;                          // For Storing State Values, mentioned above in Macro defines
+    void     *pid;                           // Used to uniquely identify thread
+    void     *sp;                            // Location of stack pointer for thread
+    int8_t   priority;                       // -8 = highest to 7 = lowest
+    int8_t   currentPriority;                // Used for priority inheritance
+    uint32_t ticks;                          // Ticks until sleep complete
+    char     name[16];                       // Name of task used in ps command
+    void     *semaphore;                     // Pointer to the semaphore that is blocking the thread
     uint8_t   skips;                         // Skip count for priority calculations
-    uint32_t threadTime;
 
 } tcb[MAX_TASKS];
 
-struct _tcb tcb[MAX_TASKS] = {0};
 
+// Service Call ISR cases
 enum svc_cases
 {
     svcYIELD = 100,                          // Value of yield label in switch case
@@ -238,10 +236,7 @@ enum svc_cases
     svcKILL  = 104,                          // Value of kill label in switch case
 };
 
-uint32_t* SystemStackPt;                     // Pointer to the Main Stack pointer
-uint8_t svc_value;                           // Value of service call by SVC instruction
-
-
+// RTOS scheduler DS
 struct osScheduler
 {
     uint8_t preemptiveEnable;                // For Setting the Preemptive Scheduler Enable Mode
@@ -249,33 +244,119 @@ struct osScheduler
     uint8_t priorityInherit;                 // For Enabling Priority Inheritance
 };
 
-struct osScheduler scheduler;
-
-// Loop Variables
-uint8_t i, j, k = 0;                         // Used in svcisr
-
-uint32_t* PC_VAL = 0;                        // User in svcisr
-
-// Time Calculation Variables
-uint32_t startTime;
-uint32_t stopTime;
-
-
+// DS for time calculations
 struct timeCalc
 {
-    uint32_t runTime;
-    //uint32_t totalTime1;
-    uint32_t filterTime;
-    uint32_t taskPercentage;
+    uint32_t runTime;                        // Used for storing time taken by task to run
+    //uint32_t totalTime;                    // Used for storing total run time of task till OS is running
+    uint32_t filterTime;                     // Used for storing the moving averaged value of run time
+    uint32_t taskPercentage;                 // User for storing value of CPU usage for each task
 
 }processTime[MAX_TASKS];
 
-uint16_t measureTimeSlice = 0;
-uint32_t totalTime = 0;
+
 
 //*****************************************************************************//
 //                                                                             //
-//          (USER)MACRO DEFINITIONS, DIRECTIVES and STRUCTURES                 //
+//                    (KERNEL) Function Prototypes                             //
+//                                                                             //
+//*****************************************************************************//
+
+// Typedefs
+typedef void (*_fn)();                                 // Typedef to function pointer for threads
+
+
+// Kernel main Functions and Helper functions
+void rtosInit();                                       // Function to Initialize RTOS.          | retval: void  | param: NULL            |
+
+int rtosScheduler();                                   // Function to Configure RTOS Scheduler. | retval: void  | param: NULL            |
+
+void rtosStart();                                      // Function to Start the RTOS.           | retval: void  | param: NULL            |
+
+bool createThread(_fn fn, char name[], int priority);  // Function to Create Task/Threads.      | retval: bool  | param: Pointer To Task | param: Task Name | param: Task Priority |
+
+void destroyThread(_fn fn);                            // Function to Destroy Task/Threads.     | retval: void  | param: Pointer To Task |
+
+void setThreadPriority(_fn fn, uint8_t priority);      // Function to Destroy Task/Threads.     | retval: void  | param: Task Priority   |
+
+void yield();                                          // Function to Initialize RTOS.          | retval: void  | param: NULL            |
+
+void sleep(const uint32_t tick);                       // Function to set sleep time Interval   | retval: void   | param: Value of sleep |
+
+uint32_t ret_R0(void);                                 // Function to get value of 1st Argument | retval: uint32 | param: NULL           |
+
+uint32_t ret_R1(void);                                 // Function to get value of 2nd Argument | retval: uint32 | param: NULL           |
+
+uint32_t ret_R2(void);                                 // Function to get value of 3rt Argument | retval: uint32 | param: NULL           |
+
+uint8_t get_svcValue(void);                            // Function to get value of SVC Inst.    | retval: uint8  | param: NULL           |
+
+void setStackPt(void* func_stack);                     // Function to set System Stack Pointer  | retval: void   | param: PID To Task    |
+
+uint32_t* getStackPt();                                // Function to get Stack Pointer         | retval: uint32 | param: NULL           |
+
+
+// Kernel Synchronization and semaphore functions
+struct semaphore* \
+createSemaphore(char* semName, uint8_t count);         // Function to Create Semaphores         | retval: structure pointer to sem  | param: Pointer to Sem |
+
+void wait(struct semaphore *pSemaphore);               // Function to set Wait for a Semaphore  | retval: void                      | param: Pointer to Sem |
+
+void post(struct semaphore *pSemaphore);               // Function to set Post for a Semaphore  | retval: void                      | param: Pointer to Sem |
+
+
+
+
+//*****************************************************************************//
+//                                                                             //
+//                    (KERNEL) GLOBAL VARIABLES                                //
+//                                                                             //
+//*****************************************************************************//
+
+
+// Kernel Variables
+uint8_t taskCurrent = 0;                     // Index of last dispatched task
+uint8_t taskCount   = 0;                     // Total number of valid tasks
+uint32_t stack[MAX_TASKS][256];              // 1024 byte stack for each thread
+uint8_t semaphoreCount = 0;                  // Store Semaphore Count value
+uint32_t* SystemStackPt;                     // Pointer to the Main Stack pointer
+
+
+// Loop Variables
+uint8_t i, j, k  = 0;                        // Used in svcisr for loop
+
+
+// SVC Variables
+uint32_t* PC_VAL = 0;                        // Used in svcisr for storing the program counter value, for inline ASM implementation of stack
+uint8_t svc_value = 0;                       // Value of service call by SVC instruction
+uint32_t task_pid = 0;                       // User for storing task PID in svcISR
+
+
+// Time Calculation Variables
+uint32_t startTime        = 0;               // User for storing start time of thread
+uint32_t stopTime         = 0;               // User for storing stop time of thread
+uint32_t totalTime        = 0;               // User for storing total time taken by thread in given timeslice (80 ms in SytickISR)
+uint16_t measureTimeSlice = 0;               // User for storing value of measurement time slice in SystickISR
+
+
+// Structure Variables (see structure above in Kernel defines and Data Structures )
+struct _tcb tcb[MAX_TASKS] = {0};            // Structure array for thread control block DS
+struct osScheduler scheduler;                // Structure Variable to osScheduler Structure
+
+struct semaphore *SemaphorePt;               // Pointer to SemaphorePt Semaphore, declared in kernel space
+
+struct semaphore *keyPressed;                // Pointer to keyPressed Semaphore, declared at user space
+struct semaphore *keyReleased;               // Pointer to keyReleased Semaphore, declared at user space
+struct semaphore *flashReq;                  // Pointer to flashReq Semaphore, declared at user space
+struct semaphore *resource;                  // Pointer to resource Semaphore, declared at user space
+
+
+
+
+
+//*****************************************************************************//
+//                                                                             //
+//          (USER) MACRO DEFINITIONS, DIRECTIVES and STRUCTURES                //
 //                                                                             //
 //*****************************************************************************//
 
@@ -361,8 +442,6 @@ uint32_t totalTime = 0;
 #define __CURSOR__RIGHT__            (const char*)("\033[C")
 
 
-//*************************** Structs ************************************//
-
 
 //*****************************************************************************//
 //                                                                             //
@@ -371,17 +450,17 @@ uint32_t totalTime = 0;
 //*****************************************************************************//
 
 //Delay and Blocking Functions
-void waitMicrosecond(uint32_t us);
+void waitMicrosecond(uint32_t us);                     //
 
 
 //UART IO Control functions
-void putcUart0(const char c);
-void putsUart0(const char* str);
-char getcUart0(void);
-void putnUart0(uint32_t Number);
-void clear_screen(void);
-void command_line(void);
-void set_cursor(uint32_t Line, uint32_t Cols);
+void putcUart0(const char c);                          //
+void putsUart0(const char* str);                       //
+char getcUart0(void);                                  //
+void putnUart0(uint32_t Number);                       //
+void clear_screen(void);                               //
+void command_line(void);                               //
+void set_cursor(uint32_t Line, uint32_t Cols);         //
 
 
 //String functions
@@ -400,6 +479,7 @@ void getTaskPid(void);
 void getProcessStatus(void);
 void getIpcs(void);
 void getTaskStatus(char *threadName);
+uint8_t readPbs(void);
 
 
 //Buffer Reset Control Functions
@@ -415,32 +495,35 @@ void reset_new_string(void);
 
 
 // String variables
-char string[MAX_SIZE]               = {0};                                         // Array to store the chars received from UART
-char new_string[MAX_ARGS][MAX_SIZE] = {0};                                         // Array to store the words after dividing the string to tokens
-char buff_int[MAX_SIZE]             = {0};                                         // Array buffer to store converted value of integer to char
+char string[MAX_SIZE]               = {0};             // Array to store the chars received from UART
+char new_string[MAX_ARGS][MAX_SIZE] = {0};             // Array to store the words after dividing the string to tokens
+char buff_int[MAX_SIZE]             = {0};             // Array buffer to store converted value of integer to char
 
 // Char category variables
-uint8_t a[MAX_ARGS] = {0};                                                         // Array to store the record of Alpha characters
-uint8_t n[MAX_ARGS] = {0};                                                         // Array to store the record of Numeric characters
-uint8_t s[MAX_ARGS] = {0};                                                         // Array to store the record of Special characters
+uint8_t a[MAX_ARGS] = {0};                             // Array to store the record of Alpha characters
+uint8_t n[MAX_ARGS] = {0};                             // Array to store the record of Numeric characters
+uint8_t s[MAX_ARGS] = {0};                             // Array to store the record of Special characters
 
 
 // Argument count variables
-uint8_t args_no      = 0;                                                          // Variable for indexing initial number of arguments
-uint8_t args_str     = 0;                                                          // Variable for indexing the number of characters per argument
-uint8_t args_updated = 0;                                                          // Variable for indexing final number of arguments, not initialized to zero
-
-// Struct variables
+uint8_t args_no      = 0;                              // Variable for indexing initial number of arguments
+uint8_t args_str     = 0;                              // Variable for indexing the number of characters per argument
+uint8_t args_updated = 0;                              // Variable for indexing final number of arguments, not initialized to zero
 
 
-// Test Variables
-
-//commands
+// Local Directory for commands
 char cmd_DB [20][20] = {"clear","sched","pidof","ps","echo","ipcs","preempt","kill","reboot", "help", "statof", "pi", "info"};
 
-//-----------------------------------------------------------------------------
-// RTOS Kernel Functions
-//-----------------------------------------------------------------------------
+// Local Directory for Thread/Task PIDs
+void *tsk_DB[MAX_TASKS] = {0};
+
+
+//*****************************************************************************//
+//                                                                             //
+//                    (KERNEL) FUNCTIONS AND SUBROUTINES                       //
+//                                                                             //
+//*****************************************************************************//
+
 
 void rtosInit()
 {
@@ -519,6 +602,12 @@ void rtosStart()
 {
     // REQUIRED: add code to call the first task to be run
     _fn fn;
+
+    // Store Thread/Task PIDs in Local Directory
+    for(i = 0; i<MAX_TASKS; i++)
+    {
+        tsk_DB[i] = tcb[i].pid;
+    }
 
     // Add code to initialize the SP with tcb[task_current].sp;
     SystemStackPt  = getStackPt();
@@ -610,6 +699,7 @@ struct semaphore* createSemaphore(char* semName, uint8_t count)
     if (semaphoreCount < MAX_SEMAPHORES)
     {
         pSemaphore = &semaphores[semaphoreCount++];
+
         pSemaphore->count = count;
 
         uSTRCPY(pSemaphore->semName, semName);
@@ -649,7 +739,6 @@ void post(struct semaphore *pSemaphore)
 
 
 
-
 // REQUIRED: modify this function to add support for the system timer
 // REQUIRED: in preemptive code, add code to request task switch
 void systickIsr(void)
@@ -658,28 +747,36 @@ void systickIsr(void)
     uint8_t tsk;
     uint8_t firstUpdate = 1;
 
-    // sleep function support
+
+    // Sleep function support
     for(taskN=0; taskN < MAX_TASKS; taskN++)
     {
         if(tcb[taskN].state == STATE_DELAYED && tcb[taskN].ticks > 0)
         {
             tcb[taskN].ticks--;
+
+//                if(tcb[taskN].ticks == 0)
+//                    tcb[taskN].state = STATE_READY;
         }
         else if(tcb[taskN].ticks == 0 && tcb[taskN].state == STATE_DELAYED)
             tcb[taskN].state = STATE_READY;
     }
 
+
+    // Percentage run measurement for different threads
     measureTimeSlice++;
+
     if(measureTimeSlice == 80)
     {
 
-        //
+#if 0
+//        // Measure time when entered in systickISR if entered before task switch
 //        stopTime = TIMER1_TAV_R;
 //        TIMER1_CTL_R &= ~TIMER_CTL_TAEN;
-//
 //        processTime[taskCurrent].runTime = stopTime - startTime;
+#endif
 
-        // Filter data
+        // Filter run time data (Moving Average)
         for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             if(firstUpdate)
@@ -694,7 +791,7 @@ void systickIsr(void)
 
         totalTime = 0;
 
-        //Calculate total time
+        // Calculate total time
         for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             totalTime = totalTime + processTime[tsk].filterTime;
@@ -709,12 +806,6 @@ void systickIsr(void)
 
             processTime[tsk].runTime = 0;
         }
-
-
-//        for(tsk=0; tsk<MAX_TASKS; tsk++)
-//        {
-//            processTime[tsk].runTime = 0;
-//        }
 
         measureTimeSlice = 0;
 
@@ -746,25 +837,25 @@ void pendSvIsr(void)
     TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                       // Stop Timer
     TIMER1_TAV_R = 0;                                                      // Set Timer Zero
 
-    // Calculate time diff
+    // Calculate time difference
     if(tcb[taskCurrent].state != STATE_INVALID)
     {
-        processTime[taskCurrent].runTime = stopTime - startTime;
+        processTime[taskCurrent].runTime = stopTime - startTime;           // Store Time Difference
 
         //stopTime = 0;
         //startTime = 0;
     }
 
-    // No calcualtions during blocked state
+    // No calculations during blocked state
     if(tcb[taskCurrent].state == STATE_BLOCKED)
     {
-        processTime[taskCurrent].taskPercentage = 0;
-        processTime[taskCurrent].filterTime    = 0;
-        processTime[taskCurrent].runTime       = 0;
+        processTime[taskCurrent].taskPercentage = 0;                      //
+        processTime[taskCurrent].filterTime     = 0;                      //
+        processTime[taskCurrent].runTime        = 0;                      //
     }
 
-    taskCurrent = rtosScheduler();                                        // Call RTOS Scheduler to Switch Task
 
+    taskCurrent = rtosScheduler();                                        // Call RTOS Scheduler to Switch Task
 
 
     TIMER1_CTL_R |= TIMER_CTL_TAEN;                                       // Start the timer
@@ -783,25 +874,26 @@ void pendSvIsr(void)
     {
         tcb[taskCurrent].state = STATE_READY;                             // Make State as Ready
 
-        // In-line ASM Implementation
-#if 0
+        // In-line ASM Implementation (More Stable)
+#if 1
         setStackPt(tcb[taskCurrent].sp);
 
-        __asm(" MOV R0, #0x01000000" );                                   // 0x01000000. xpsr
-        __asm(" PUSH {R0}"           );                                   // push xpsr
-        PC_VAL = tcb[taskCurrent].pid;                                    // pc value, pc at thread, pid of thread
-        __asm(" PUSH {R0}"           );                                   // push pc
-        __asm(" PUSH {LR}"           );                                   // push lr
-        __asm(" PUSH {R12}"          );                                   // push r12
-        __asm(" PUSH {R0-R3}"        );                                   // push r0 to r3
+        __asm(" MOV R0, #0x01000000" );                                   // 0x01000000. XPSR
+        __asm(" PUSH {R0}"           );                                   // Push XPSR
+        PC_VAL = tcb[taskCurrent].pid;                                    // PC value, PC at thread, PID of thread
+        __asm(" PUSH {R0}"           );                                   // Push PC
+        __asm(" PUSH {LR}"           );                                   // Push LR
+        __asm(" PUSH {R12}"          );                                   // Push R12
+        __asm(" PUSH {R0-R3}"        );                                   // Push R0 to R3
 
-        __asm(" MOVW R4, #0xFFF9"    );
-        __asm(" MOVT R4, #0xFFFF"    );
-        __asm(" PUSH {R4}"           );                                   // push value of LR, saved in r4 at starting of pendsv
-        __asm(" PUSH {R3}"           );                                   // push compiler reg
+        __asm(" MOVW R8, #0xFFF9"    );                                   // Move LSB to R8 register, adjusted as per compiler pushes
+        __asm(" MOVT R8, #0xFFFF"    );                                   // Move MSB to R8 register
+        __asm(" PUSH {R8}"           );                                   // Push value of LR, saved in R8, (hard coded) or saved at starting of pendSvIsr
+        __asm(" PUSH {R3}"           );                                   // Push compiler register
 
 #else
         // Putting values in Thread Stack Better for Debugging
+
         stack[taskCurrent][255] = 0x01000000;                             // XPSR,
         stack[taskCurrent][254] = (uint32_t)tcb[taskCurrent].pid;         // PC
         stack[taskCurrent][253] = 15;                                     // LR, and debug value
@@ -811,7 +903,7 @@ void pendSvIsr(void)
         stack[taskCurrent][249] = 11;                                     // R1, and debug value
         stack[taskCurrent][248] = 10;                                     // R0, and debug value
         stack[taskCurrent][247] = 0xFFFFFFF9;                             // Value of LR, for compiler push
-        stack[taskCurrent][246] = 9;                                      // Debug Value, for compiler push
+        stack[taskCurrent][246] = (uint32_t)"R3";                         // Debug Value, for compiler push
 
         tcb[taskCurrent].sp = &stack[taskCurrent][246];                   // Point Thread SP to stop of the thread Stack
         setStackPt(tcb[taskCurrent].sp);                                  // Set Thread SP to processor SP
@@ -821,6 +913,7 @@ void pendSvIsr(void)
 }
 
 
+// Function for getting the value of SVC instruction
 uint8_t get_svcValue(void)
 {
     __asm(" MOV  R0, SP"   );
@@ -833,182 +926,181 @@ uint8_t get_svcValue(void)
     return 0;
 }
 
+// Empty function for returning the value of R0, 1st Argument to function
 uint32_t ret_R0(void)
 {
-    // Empty function for returning the value of R0
-    __asm(" BX LR"     );
+    __asm(" BX LR"          );
 
     return 0;
 }
 
+// Empty function for returning the value of R1 which is moved to R0, 2nd Argument to function
 uint32_t ret_R1(void)
 {
-    __asm(" MOV R0,R1" );
-    __asm(" BX LR"     );
+    __asm(" MOV R0,R1"      );
+    __asm(" BX LR"          );
 
     return 0;
 }
 
+// Empty function for returning the value of R2 which is moved to R0, 3nd Argument to function
 uint32_t ret_R2(void)
 {
-    __asm(" MOV R0,R2" );
-    __asm(" BX LR"     );
+    __asm(" MOV R0,R2"      );
+    __asm(" BX LR"          );
 
     return 0;
 }
 
-uint32_t task_pid = 0;
+
 
 // REQUIRED: modify this function to add support for the service call
 // REQUIRED: in preemptive code, add code to handle synchronization primitives
 void svCallIsr(void)
 {
-    uint32_t R0 = ret_R0();                                                                  // Get value of r0
-    uint32_t R1 = ret_R1();                                                                  // Get value of r1
-    uint32_t R2 = ret_R2();                                                                  // Get value of r2
+    uint32_t R0 = ret_R0();                                                                         // Get value of r0
+    uint32_t R1 = ret_R1();                                                                         // Get value of r1
+    uint32_t R2 = ret_R2();                                                                         // Get value of r2
 
-    svc_value = get_svcValue();                                                              // Get SVC value
+    svc_value = get_svcValue();                                                                     // Get SVC value
 
-    switch(svc_value)
+    switch(svc_value)                                                                               //
     {
 
     case svcYIELD:
-                  tcb[taskCurrent].state = STATE_READY;                                      // Set task ready
+                  tcb[taskCurrent].state = STATE_READY;                                             // Set task as ready
 
-                  NVIC_INT_CTRL_R= NVIC_INT_CTRL_PEND_SV;                                    // Set pendsv bit
+                  NVIC_INT_CTRL_R= NVIC_INT_CTRL_PEND_SV;                                           // Set pendsv bit to call pendsvISR for task switch
                   break;
 
 
     case svcSLEEP:
-                  tcb[taskCurrent].ticks = R0;                                               // Set sleep timeout value
-                  tcb[taskCurrent].state = STATE_DELAYED;                                    // Set state as delayed, it can't be scheduled till the time it is not in ready state
+                  tcb[taskCurrent].ticks = R0;                                                      // Set sleep timeout value
+                  tcb[taskCurrent].state = STATE_DELAYED;                                           // Set state as delayed, it can't be scheduled till the time it is not in ready state
 
-                  NVIC_INT_CTRL_R= NVIC_INT_CTRL_PEND_SV;                                    // Set pendsv bit
+                  NVIC_INT_CTRL_R= NVIC_INT_CTRL_PEND_SV;                                           // Set pendsv bit to call pendsvISR for task switch
                   break;
 
     case svcWAIT:
-                  SemaphorePt = (struct semaphore*)R0;                                       // Get the pointer to the semaphore
+                  SemaphorePt = (struct semaphore*)R0;                                              // Get the pointer to the semaphore
 
-                  if(SemaphorePt->count > 0)                                                 // Check for value of semaphore count variable
+                  if(SemaphorePt->count > 0)                                                        // Check for value of semaphore count variable
                   {
-                      SemaphorePt->count--;                                                  // Decrement the count if count > 0
+                      SemaphorePt->count--;                                                         // Decrement the count if count > 0
                       //SemaphorePt->semKey = 1;
                       tcb[taskCurrent].semaphore = NULL;
-                      tcb[taskCurrent].semaphore = SemaphorePt;                              // Must record if you are using it
+                      tcb[taskCurrent].semaphore = SemaphorePt;                                     // Must record if you are using it
                   }
                   else
                   {
-                      SemaphorePt->processQueue[SemaphorePt->queueSize] =                    // Store task in semaphore process queue
+                      SemaphorePt->processQueue[SemaphorePt->queueSize] =                           // Store task in semaphore process queue
                                            (uint32_t)tcb[taskCurrent].pid;
 
-                      SemaphorePt->queueSize++;                                              // Increment the index of the queue for next task
-                      //SemaphorePt->semKey = 0;                                             // Key is 0 since the task doesn't have it in this state
-                      //SemaphorePt->semKey = (uint32_t)tcb[taskCurrent].pid;                // Store PID to tell you are in wait state in queue
+                      SemaphorePt->queueSize++;                                                     // Increment the index of the queue for next task
 
-                      tcb[taskCurrent].state     = STATE_BLOCKED;                            // Mark the state of of current task as blocked
-                      tcb[taskCurrent].semaphore = NULL;                                     // Clear Before storing
-                      tcb[taskCurrent].semaphore = SemaphorePt;                              // Store the pointer to semaphore, record the semaphore
+                      tcb[taskCurrent].state     = STATE_BLOCKED;                                   // Mark the state of of current task as blocked
+                      tcb[taskCurrent].semaphore = NULL;                                            // Clear Before storing
+                      tcb[taskCurrent].semaphore = SemaphorePt;                                     // Store the pointer to semaphore, record the semaphore
 
-                      if(scheduler.priorityInherit == 1)
+                      if(scheduler.priorityInherit == 1)                                            //
                       {
-                          for(i=0; i<MAX_TASKS; i++)                                             // Find previous user of this semaphore
+                          for(i=0; i<MAX_TASKS; i++)                                                // Find previous user of this semaphore
                           {
-                              if(tcb[i].semaphore == tcb[taskCurrent].semaphore)
+                              if(tcb[i].semaphore == tcb[taskCurrent].semaphore)                    //
                               {
-                                  if(tcb[i].currentPriority > tcb[taskCurrent].currentPriority)
+                                  if(tcb[i].currentPriority > tcb[taskCurrent].currentPriority)     //
                                   {
-                                      tcb[i].currentPriority = tcb[taskCurrent].currentPriority;
+                                      tcb[i].currentPriority = tcb[taskCurrent].currentPriority;    //
                                   }
                                   break;
                               }
                           }
                       }
 
-                      NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                              // Set pendsv Inside 'else' since we don't have switch task all the time
+                      NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                                     // Set pendsv Inside 'else' since we don't have switch task all the time
                   }
                   break;
 
     case svcPOST:
-                 SemaphorePt = (struct semaphore*)R0;                                        // Get Pointer to the semaphore, passed as argument in post()
-                 SemaphorePt->count++;                                                       // Increment the count, for other task to use resource
-                 //tcb[taskCurrent].semaphore = NULL;
-                 //tcb[taskCurrent].semaphore = SemaphorePt;
-                 tcb[taskCurrent].currentPriority = tcb[taskCurrent].priority;               // Restore Priority
+                 SemaphorePt = (struct semaphore*)R0;                                               // Get Pointer to the semaphore, passed as argument in post()
+                 SemaphorePt->count++;                                                              // Increment the count, for other task to use resource
+                 tcb[taskCurrent].currentPriority = tcb[taskCurrent].priority;                      // Restore Priority
 
-                 if(SemaphorePt->queueSize > 0)                                              // someone is waiting in the semaphore queue
+                 if(SemaphorePt->queueSize > 0)                                                     // someone is waiting in the semaphore queue
                  {
                      for(j = 0; j < MAX_TASKS; j++)
                      {
-                         if(SemaphorePt->processQueue[0] == (uint32_t)tcb[j].pid)            // Check if a task is waiting in the same sem queue
+                         if(SemaphorePt->processQueue[0] == (uint32_t)tcb[j].pid)                   // Check if a task is waiting in the same sem queue
                          {
-                             SemaphorePt->processQueue[0] = 0;                               // Release Task waiting in queue
+                             SemaphorePt->processQueue[0] = 0;                                      // Release Task waiting in queue
 
-                             tcb[j].state = STATE_READY;                                     // Make state ready of released task
-                             SemaphorePt->count--;                                           // Decrement the count, no two or more task should use the same resource
+                             tcb[j].state = STATE_READY;                                            // Make state ready of released task
+                             SemaphorePt->count--;                                                  // Decrement the count, no two or more task should use the same resource
 
                              for(i = 0; i < SemaphorePt->queueSize; i++)
                              {
                                  SemaphorePt->processQueue[i] =
-                                         SemaphorePt->processQueue[i+1];                     // Shift Semaphore process queue up
+                                         SemaphorePt->processQueue[i+1];                            // Shift Semaphore process queue up
 
                              }
 
-                             SemaphorePt->queueSize --;                                      // Decrement Queue Size
+                             SemaphorePt->queueSize --;                                             // Decrement Queue Size
 
                              break;
                          }
                      }
                  }
-                 NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                                   // Optional
+
+                 NVIC_INT_CTRL_R |= NVIC_INT_CTRL_PEND_SV;                                          // Optional, call pendSvISR to switch task
                  break;
 
     case svcKILL:
                  task_pid = R0;
                  for(i=0; i<MAX_TASKS; i++)
                  {
-                     if(tcb[i].pid == (_fn)task_pid)                                         // Search for requested task in list of PIDs
+                     if(tcb[i].pid == (_fn)task_pid)                                                // Search for requested task in list of PIDs
                      {
-                         tcb[i].state = STATE_INVALID;                                       // Make the state invalid so that it cannot be scheduled
-                         taskCount--;                                                        // Decrease the task count to make room for new tasks
+                         tcb[i].state = STATE_INVALID;                                              // Make the state invalid so that it cannot be scheduled
+                         taskCount--;                                                               // Decrease the task count to make room for new tasks
 
-                         if(tcb[i].semaphore != 0)                                           // Check if task uses Semaphore
+                         if(tcb[i].semaphore != 0)                                                  // Check if task uses Semaphore
                          {
-                             SemaphorePt = tcb[i].semaphore;                                 // Get the current semaphore of the task
+                             SemaphorePt = tcb[i].semaphore;                                        // Get the current semaphore of the task
 
                              for(j=0; j<SemaphorePt->queueSize; j++)
                              {
-                                 if(SemaphorePt->processQueue[j] == task_pid)                // Check if task is present in the semaphore process queue
+                                 if(SemaphorePt->processQueue[j] == task_pid)                       // Check if task is present in the semaphore process queue
                                  {
-                                     SemaphorePt->processQueue[j] = 0;                       // Remove the task from the semaphore process queue
+                                     SemaphorePt->processQueue[j] = 0;                              // Remove the task from the semaphore process queue
 
                                      for(k=j; k<SemaphorePt->queueSize; k++)
                                      {
                                          SemaphorePt->processQueue[k] =
-                                                 SemaphorePt->processQueue[k+1];             // Shift process queue up
+                                                 SemaphorePt->processQueue[k+1];                    // Shift process queue up
                                      }
 
-                                     SemaphorePt->queueSize --;                              // Decrement Queue Size
+                                     SemaphorePt->queueSize --;                                     // Decrement Queue Size
 
                                      break;
                                  }
-                                 else                                                        // Only if tasks use same semaphores in pairs
+                                 else                                                               // Only if tasks use same semaphores in pairs
                                  {
                                      for(j=0; j<MAX_TASKS; j++)
                                      {
-                                         if(SemaphorePt->processQueue[0] == (uint32_t)tcb[j].pid)   //see if someone is waiting in queue, release it
+                                         if(SemaphorePt->processQueue[0] == (uint32_t)tcb[j].pid)   // See if someone is waiting in queue, release it
                                          {
-                                             SemaphorePt->processQueue[0] = 0;
+                                             SemaphorePt->processQueue[0] = 0;                      //
 
-                                             tcb[j].state = STATE_READY;
+                                             tcb[j].state = STATE_READY;                            //
 
                                              // Shift queue up
                                              for(k=0; k<SemaphorePt->queueSize; k++)
                                              {
                                                  SemaphorePt->processQueue[k] =
-                                                         SemaphorePt->processQueue[k+1];
+                                                         SemaphorePt->processQueue[k+1];            //
                                              }
 
-                                             SemaphorePt->queueSize --;
+                                             SemaphorePt->queueSize --;                             //
                                              break;
                                          }
 
@@ -1021,13 +1113,16 @@ void svCallIsr(void)
 
                          }// check semaphore if statement
 
-                         task_pid = 0;                                                       // Clear local
-                         tcb[i].pid = NULL;                                                  // Make pid = 0 so that it can removed from found state in createthread()
-                         tcb[i].sp = NULL;                                                   //
-                         tcb[i].semaphore = NULL;
-                         processTime[i].taskPercentage = 0;
-                         processTime[i].runTime = 0;
-                         totalTime = 0;
+                         task_pid = 0;                                                              // Clear local
+
+                         tcb[i].pid       = NULL;                                                   // Make pid = 0 so that it can removed from found state in createthread()
+                         tcb[i].sp        = NULL;                                                   //
+                         tcb[i].semaphore = NULL;                                                   //
+
+                         processTime[i].runTime        = 0;                                         //
+                         processTime[i].taskPercentage = 0;                                         //
+
+                         totalTime = 0;                                                             //
                          break;
                      }// if Statement end
                  }
@@ -1035,7 +1130,7 @@ void svCallIsr(void)
                  break;
 
 
-    default:                                                                                 // Used for Debugging
+    default:                                                                                        // Used for Debugging
                   putsUart0(__FUNCTION__);
                   putcUart0(':');
                   putsUart0("Entered 'Default' of switch case\r\n");
@@ -1086,47 +1181,48 @@ void initHw()
     //**************************************************** On Board Modules ******************************************************************//
 
     // Configure On boards RED, GREEN and BLUE led and Pushbutton Pins
-    GPIO_PORTF_DEN_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                 // Enable Digital
-    GPIO_PORTF_DIR_R |= (1 << 1) | (1 << 2) | (1 << 3);                            // Enable as Output
-    GPIO_PORTF_DIR_R &= ~(0x10);                                                   // Enable push button as Input
-    GPIO_PORTF_PUR_R |= 0x10;                                                      // Enable internal pull-up for push button
+    GPIO_PORTF_DEN_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                  // Enable Digital
+    GPIO_PORTF_DIR_R |= (1 << 1) | (1 << 2) | (1 << 3);                             // Enable as Output
+    GPIO_PORTF_DIR_R &= ~(0x10);                                                    // Enable push button as Input
+    GPIO_PORTF_PUR_R |= 0x10;                                                       // Enable internal pull-up for push button
 
 
     //********************************************** Console IO Hardware Configs *************************************************************//
 
     // Configure UART0 pins
-    SYSCTL_RCGCUART_R  |= SYSCTL_RCGCUART_R0;                                      // Turn-on UART0, leave other uarts in same status
-    GPIO_PORTA_DEN_R   |= 3;                                                       // Turn on Digital Operations on PA0 and PA1
-    GPIO_PORTA_AFSEL_R |= 3;                                                       // Select Alternate Functionality on PA0 and PA1
-    GPIO_PORTA_PCTL_R  |= GPIO_PCTL_PA1_U0TX | GPIO_PCTL_PA0_U0RX;                 // Select UART0 Module
+    SYSCTL_RCGCUART_R  |= SYSCTL_RCGCUART_R0;                                       // Turn-on UART0, leave other uarts in same status
+    GPIO_PORTA_DEN_R   |= 3;                                                        // Turn on Digital Operations on PA0 and PA1
+    GPIO_PORTA_AFSEL_R |= 3;                                                        // Select Alternate Functionality on PA0 and PA1
+    GPIO_PORTA_PCTL_R  |= GPIO_PCTL_PA1_U0TX | GPIO_PCTL_PA0_U0RX;                  // Select UART0 Module
 
     // Configure UART0 to 115200 baud, 8N1 format (must be 3 clocks from clock enable and config writes)
-    UART0_CTL_R   = 0;                                                             // turn-off UART0 to allow safe programming
-    UART0_CC_R   |= UART_CC_CS_SYSCLK;                                             // use system clock (40 MHz)
-    UART0_IBRD_R  = 21;                                                            // r = 40 MHz / (Nx115.2kHz), set floor(r)=21, where N=16
-    UART0_FBRD_R  = 45;                                                            // round(fract(r)*64)=45
-    UART0_LCRH_R |= UART_LCRH_WLEN_8 | UART_LCRH_FEN;                              // configure for 8N1 w/ 16-level FIFO
-    UART0_CTL_R  |= UART_CTL_TXE | UART_CTL_RXE | UART_CTL_UARTEN;                 // enable TX, RX, and module
+    UART0_CTL_R   = 0;                                                              // turn-off UART0 to allow safe programming
+    UART0_CC_R   |= UART_CC_CS_SYSCLK;                                              // use system clock (40 MHz)
+    UART0_IBRD_R  = 21;                                                             // r = 40 MHz / (Nx115.2kHz), set floor(r)=21, where N=16
+    UART0_FBRD_R  = 45;                                                             // round(fract(r)*64)=45
+    UART0_LCRH_R |= UART_LCRH_WLEN_8 | UART_LCRH_FEN;                               // configure for 8N1 w/ 16-level FIFO
+    UART0_CTL_R  |= UART_CTL_TXE | UART_CTL_RXE | UART_CTL_UARTEN;                  // enable TX, RX, and module
 
 
     //***************************************************** External Modules ******************************************************************//
 
     // External Push Buttons
-    GPIO_PORTA_DEN_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);
-    GPIO_PORTA_DIR_R &= ~(1 << 2) | ~(1 << 3) | ~(1 << 4) | ~(1 << 5) | ~(1 << 6);
-    GPIO_PORTA_PUR_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);
+    GPIO_PORTA_DEN_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);       //
+    GPIO_PORTA_DIR_R &= ~(1 << 2) | ~(1 << 3) | ~(1 << 4) | ~(1 << 5) | ~(1 << 6);  //
+    GPIO_PORTA_PUR_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);       //
 
     // External LEDs
-    GPIO_PORTE_DEN_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);
-    GPIO_PORTE_DIR_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);
+    GPIO_PORTE_DEN_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                  //
+    GPIO_PORTE_DIR_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                  //
 
     //******************************************************* Systick Timer for Measurement ****************************************************//
-    SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R1;                              // turn-on timer
-    TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                        // turn-off timer before reconfiguring
-    TIMER1_CFG_R = TIMER_CFG_32_BIT_TIMER;                                  // configure as 32-bit timer (A+B)
-    TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD | TIMER_TAMR_TACDIR;             // configure for periodic mode (count Up)
-    TIMER1_TAV_R = 0;
-    TIMER1_CTL_R |= TIMER_CTL_TAEN;
+
+    SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R1;                                      // Enable Systick timer
+    TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                                // Disable timer before configuring (safe programming)
+    TIMER1_CFG_R = TIMER_CFG_32_BIT_TIMER;                                          // Configure as 32-bit timer (A+B)
+    TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD | TIMER_TAMR_TACDIR;                     // Configure for periodic mode and Count Up timer
+    //TIMER1_TAV_R = 0;
+    //TIMER1_CTL_R |= TIMER_CTL_TAEN;
 
 }
 
@@ -1137,7 +1233,7 @@ void initHw()
 //*****************************************************************************//
 
 
-//micro second delay function
+// micro second delay function
 void waitMicrosecond(uint32_t us)
 {
     __asm("WMS_LOOP0:   MOV  R1, #6"       );
@@ -1264,7 +1360,7 @@ void command_line(void)
     {
         char_input = getcUart0();
 
-        //putcUart0(char_input);        //enable hardware echo
+        //putcUart0(char_input);                        //enable hardware echo
 
         if (char_input == 13)
         {
@@ -1338,18 +1434,16 @@ void command_line(void)
 
     }
 
-    //putsUart0("\r\n");
-
 }
 
 
 // Function for Clearing the Terminal Screen via UART
 void clear_screen(void)
 {
-    putsUart0("\033[2J\033[H");         //ANSI VT100 escape sequence, clear screen and set cursor to home.
+    putsUart0("\033[2J\033[H");                                      // ANSI VT100 escape sequence, clear screen and set cursor to home.
 }
 
-// Function for setting the cursor
+// Function for setting the cursor terminal
 void set_cursor(uint32_t Line, uint32_t Cols)
 {
     putcUart0('\033');
@@ -1361,6 +1455,7 @@ void set_cursor(uint32_t Line, uint32_t Cols)
 
 }
 
+// Function for moving Cursor right in terminal
 void mov_right(uint16_t val)
 {
     putcUart0('\033');
@@ -1393,7 +1488,6 @@ uint8_t uSTRCMP(char *string_1, char *string_2)
 
     return *(uint8_t*)string_1 - *(uint8_t*)string_2;
 
-
 }
 
 // Function to return the length of the string.
@@ -1413,7 +1507,6 @@ uint8_t uSTRLEN(const char *string)
 void uSTRCPY(char *string_dest, char *string_src)
 {
 
-
     while(*string_src)
     {
         *string_dest = *string_src;
@@ -1424,7 +1517,6 @@ void uSTRCPY(char *string_dest, char *string_src)
     }
 
     *string_dest = '\0';
-
 
 }
 
@@ -1439,7 +1531,7 @@ void parse_string(void)
     //Convert character into string blocks and tokenize these blocks with delimiters
     for (i = 0; i <= uSTRLEN(string); i++)
     {
-        if (string[i]== ' '|| string[i] == '\0' || string[i] == 9 || DELIMS)
+        if (string[i]== ' '|| string[i] == '\0' || string[i] == 9 || string[i] == 34 )
         {
             new_string[args_no][args_str] = 0;
             args_no++;
@@ -1581,7 +1673,6 @@ void reset_buffer(void)
     args_no      = 0;
     args_str     = 0;
 
-
     reset_new_string();
 
 }
@@ -1599,7 +1690,7 @@ void project_info(void)
 {
     putsUart0("\033]2;| Name:Aditya Mall | (c) 2019 |\007");                                                               // Window Title Information
     putsUart0("\033]10;#FFFFFF\007");                                                                                      // Text Color (RGB)
-    //putsUart0("\033]11;#E14141\007");                                                                                    // Background Color (RGB)
+    //putsUart0("\033]11;#E14141\007");                                                                                    // Background Color
 
     putsUart0("\r\n");
     putsUart0("Project : RTOS for EK-TM4C123GXL Evaluation Board.\r\n");                                                   // Project Name
@@ -1626,11 +1717,12 @@ int8_t command_search(void)
 
     for(lkp=0; lkp < (sizeof(cmd_DB) / sizeof (cmd_DB[0])); lkp++)
     {
-        if(uSTRCMP(cmd_DB[lkp], new_string[0])== 0)
+        if(uSTRCMP(cmd_DB[lkp], new_string[0])== 0 || uSTRCMP(new_string[1], "&")== 0 )
         {
             cmdFound = true;
             return 1;
         }
+
     }
     if(!cmdFound)
     {
@@ -1643,9 +1735,11 @@ int8_t command_search(void)
     return 0;
 }
 
+
 void TIVA_shell(void)
 {
     uint32_t i = 0;
+    bool notFound = true;
 
     //************************************* Clear the Terminal Screen ******************************************//
 
@@ -1689,7 +1783,6 @@ void TIVA_shell(void)
         if (uSTRCMP(new_string[0], "info") == 0)
         {
             project_info();
-            putsUart0("sleep: Ticks Not protected \r\n");
 
         }
         else if(is_command("info",0) == -1)
@@ -1750,7 +1843,6 @@ void TIVA_shell(void)
     if (is_command("kill", 1) == 1)
     {
         uint32_t rec_pid = atoi(new_string[1]);
-        bool notFound = true;
 
         // Protect Shell from being terminated by user
         for(i = 0; i<MAX_TASKS; i++)
@@ -1927,10 +2019,54 @@ void TIVA_shell(void)
         putsUart0("\r\n");
     }
 
+    //********************************************* createthread command  ************************************************//
+
+    if (uSTRCMP(new_string[1], "&") == 0)
+    {
+
+        bool nf = false;
+
+        for(i=0; i<MAX_TASKS; i++)
+        {
+            if(uSTRCMP(new_string[0], tcb[i].name) == 0)
+            {
+
+
+                if(tcb[i].pid != 0)
+                {
+                    putsUart0("Task already lives can't create \r\n");
+                    break;
+                }
+                else
+                {
+                    createThread((_fn)tsk_DB[i], tcb[i].name, 0);
+                    break;
+                }
+            }
+            else
+                nf = true;
+        }
+        if(nf)
+        {
+            putsUart0("\r\n");
+            putsUart0("ERROR:Task Not Found, USAGE: <Task Name> \"&\" \r\n");
+            //putsUart0("Run Command \"ps\" for PID list of running Tasks \r\n");
+        }
+    }
+//    else if (is_command("statof", 1) == -1)
+//    {
+//        putsUart0("\r\n");
+//        putsUart0("ERROR:\"statof\" Argument Missing, USAGE: statof [\"thread name\"] \r\n");
+//        putsUart0("\r\n");
+//    }
+
+
     //************************************************** TivaShell Function End ************************************************************************//
 }
 
 
+
+// Function to get the Task PID
 void getTaskPid(void)
 {
     uint8_t taskNo = 0;
@@ -1947,6 +2083,7 @@ void getTaskPid(void)
 }
 
 
+// Function get Process Status
 void getProcessStatus(void)
 {
     uint8_t taskNo = 0;
@@ -1954,112 +2091,13 @@ void getProcessStatus(void)
     char int_buf[3] = {0};
     char stateName[10] = {0};
 
-    char NumBuff[4] = {0};
     uint8_t cpuNUM = 0;
     uint32_t cpuP = 0;
 
 
     putsUart0("\r\n");
 
-    // Title
-    putsUart0("\033[33;1m");
-    putsUart0("PID"); mov_right(5);putsUart0("Task Name"); mov_right(5);putsUart0("CPU%"); mov_right(4);putsUart0("Priority");
-    mov_right(5);putsUart0("STATE"); putsUart0("\r\n"); putsUart0("\033[0m");
-
-    for(taskNo=0; taskNo < MAX_TASKS; taskNo++)
-    {
-        cpuP = processTime[taskNo].taskPercentage;
-
-        if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))                                    // Don't show task with INVALID Status
-        {
-            if((uint32_t)tcb[taskNo].pid < 10000)
-            {
-                putnUart0(0);
-                putnUart0((uint32_t)tcb[taskNo].pid);
-            }
-            else
-                putnUart0((uint32_t)tcb[taskNo].pid);
-
-            putsUart0("   ");
-
-            putsUart0(tcb[taskNo].name);
-
-            len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));
-
-            // Print CPU times
-            mov_right(len_diff+4);
-
-            cpuNUM = cpuP / 100;
-
-            if(cpuNUM < 10)
-                putsUart0("0");
-
-            ltoa(cpuNUM,NumBuff);
-            putsUart0(NumBuff);
-            cpuNUM = 0;
-
-            putcUart0('.');
-
-            cpuNUM = cpuP % 100;
-
-            ltoa(cpuNUM,NumBuff);
-            putsUart0(NumBuff);
-
-            if(cpuNUM < 10)
-                putsUart0("0");
-            cpuNUM = 0;
-
-
-            mov_right(7);
-
-            if(tcb[taskNo].currentPriority < 8)
-            {
-                ltoa((long)tcb[taskNo].currentPriority - 8,int_buf);
-                putsUart0(int_buf);
-            }
-            else
-            {
-                putnUart0(0);
-                putnUart0(tcb[taskNo].currentPriority - 8);
-            }
-
-            //parse state names
-            switch(tcb[taskNo].state)
-            {
-            case 0:
-                uSTRCPY(stateName, "INVALID");
-                break;
-
-            case 1:
-                uSTRCPY(stateName, "UNRUN");
-                break;
-
-            case 2:
-                uSTRCPY(stateName, "READY");
-                break;
-
-            case 3:
-                uSTRCPY(stateName, "DELAYED");
-                break;
-
-            case 4:
-                uSTRCPY(stateName, "BLOCKED");
-                break;
-
-            default:
-                break;
-            }
-
-            mov_right(8);
-
-            putsUart0(stateName);
-
-            putsUart0("\r\n");
-        }
-    }
-
     //Scheduler Status
-    putsUart0("\r\n");
     putsUart0("\033[33;1m"); putsUart0("Scheduler Status"); putsUart0("\r\n"); putsUart0("\033[0m");
 
     //Priority Status
@@ -2098,8 +2136,112 @@ void getProcessStatus(void)
     }
 
     putsUart0("\r\n");
+
+    putsUart0("\r\n");
+
+    // Title
+    putsUart0("\033[33;1m");
+    putsUart0("PID"); mov_right(5);putsUart0("Task Name"); mov_right(5);putsUart0("CPU%"); mov_right(4);putsUart0("Priority");
+    mov_right(3);putsUart0("STATE"); putsUart0("\r\n"); putsUart0("\033[0m");
+
+    for(taskNo=0; taskNo < MAX_TASKS; taskNo++)
+    {
+        cpuP = processTime[taskNo].taskPercentage;
+
+        if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))                                    // Don't show task with INVALID Status
+        {
+            if((uint32_t)tcb[taskNo].pid < 10000)
+            {
+                putnUart0(0);
+                putnUart0((uint32_t)tcb[taskNo].pid);
+            }
+            else
+                putnUart0((uint32_t)tcb[taskNo].pid);
+
+            putsUart0("   ");
+
+            putsUart0(tcb[taskNo].name);
+
+            len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));
+
+
+            // Print CPU task Run Times
+            mov_right(len_diff+4);
+
+            cpuNUM = cpuP / 100;
+
+            if(cpuNUM < 10)
+                putsUart0("0");
+
+            putnUart0(cpuNUM);
+            cpuNUM = 0;
+
+            putcUart0('.');
+
+            cpuNUM = cpuP % 100;
+
+            putnUart0(cpuNUM);
+
+            if(cpuNUM < 10)
+                putsUart0("0");
+
+            cpuNUM = 0;
+
+
+            // Print Thread priorities
+            mov_right(7);
+
+            if(tcb[taskNo].currentPriority < 8)
+            {
+                ltoa((long)tcb[taskNo].currentPriority - 8,int_buf);
+                putsUart0(int_buf);
+            }
+            else
+            {
+                putnUart0(0);
+                putnUart0(tcb[taskNo].currentPriority - 8);
+            }
+
+            // Parse state names
+            switch(tcb[taskNo].state)
+            {
+            case 0:
+                uSTRCPY(stateName, "INVALID");
+                break;
+
+            case 1:
+                uSTRCPY(stateName, "UNRUN");
+                break;
+
+            case 2:
+                uSTRCPY(stateName, "READY");
+                break;
+
+            case 3:
+                uSTRCPY(stateName, "DELAYED");
+                break;
+
+            case 4:
+                uSTRCPY(stateName, "BLOCKED");
+                break;
+
+            default:
+                break;
+            }
+
+            mov_right(6);
+
+            putsUart0(stateName);
+
+            putsUart0("\r\n");
+        }
+    }
+
+    putsUart0("\r\n");
 }
 
+
+// Function to get Inter-Process Communication Status, currently displays only semaphore status
 void getIpcs(void)
 {
     uint8_t semNo     = 0;
@@ -2199,13 +2341,11 @@ void getIpcs(void)
 }
 
 
+// Debug Function to get detailed status of a Task (Not in Course Work)
 void getTaskStatus(char *threadName)
 {
     uint8_t taskNo  = 0;
     uint8_t taskFnd = 0;
-
-
-    //putsUart0("Model:381 \r\n");
 
     for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
     {
@@ -2239,10 +2379,8 @@ void getTaskStatus(char *threadName)
 
 }
 
-//-----------------------------------------------------------------------------
-// Subroutines
-//-----------------------------------------------------------------------------
 
+// Function to get a return value from buttons pushed in OS test bench Hardware.
 uint8_t readPbs(void)
 {
     uint8_t retval_button = 0;
@@ -2266,9 +2404,12 @@ uint8_t readPbs(void)
 }
 
 
-//------------------------------------------------------------------------------
-//  Task functions
-// ------------------------------------------------------------------------------
+
+//*****************************************************************************//
+//                                                                             //
+//                        USER THREADS / TASKS                                 //
+//                                                                             //
+//*****************************************************************************//
 
 // one task must be ready at all times or the scheduler will fail
 // the idle task is implemented for this purpose
