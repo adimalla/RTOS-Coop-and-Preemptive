@@ -804,12 +804,12 @@ void systickIsr(void)
         // Calculate CPU %age
         for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
-            processTime[tsk].taskPercentage = (processTime[tsk].filterTime * 10000) / totalTime;
+            processTime[tsk].taskPercentage = (processTime[tsk].filterTime * 10000) / totalTime;       // Multiply by 10000 to preserve decimal upto two place
 
-            processTime[tsk].runTime = 0;
+            processTime[tsk].runTime = 0;                                                              // clear runTime variable
         }
 
-        measureTimeSlice = 0;
+        measureTimeSlice = 0;                                                                          // clear time slice variable
 
     }
 
@@ -1881,6 +1881,8 @@ void TIVA_shell(void)
                 else
                 {
                     notFound = false;
+                    putsUart0(tcb[i].name);
+                    putsUart0(": Killed \r\n");
                     destroyThread((_fn)rec_pid);
                     break;
                 }
@@ -2054,7 +2056,7 @@ void TIVA_shell(void)
             {
 
                 fnd = true;
-                putsUart0("Task already lives can't create \r\n");
+                putsUart0("Task already exists can't create \r\n");
                 break;
 
             }
@@ -2068,7 +2070,7 @@ void TIVA_shell(void)
                 if(uSTRCMP(new_string[0], tskName_DB[i]) == 0)
                 {
                     fnd = true;
-                    putsUart0("Task already killed before, lets create \r\n");
+                    putsUart0("Task Created\r\n");
                     createThread((_fn)tsk_DB[i], tskName_DB[i], 0);
                     break;
                 }
@@ -2106,16 +2108,15 @@ void getTaskPid(void)
 }
 
 
-// Function get Process Status
+// Function to get Process Status
 void getProcessStatus(void)
 {
-    uint8_t taskNo = 0;
-    uint8_t len_diff = 0;
-    char int_buf[3] = {0};
-    char stateName[10] = {0};
-
-    uint8_t cpuNUM = 0;
-    uint32_t cpuP = 0;
+    uint8_t taskNo     = 0;      // Used in Task count loop
+    uint8_t len_diff   = 0;      // Calculate space between columns
+    uint8_t cpuNUM     = 0;      // Store CPU %age Info after local calculations
+    uint32_t cpuP      = 0;      // Store CPU %age Info from processTime DS
+    char int_buf[3]    = {0};    // Used for storing Numbers
+    char stateName[10] = {0};    // Used for storing state names
 
 
     putsUart0("\r\n");
@@ -2169,41 +2170,44 @@ void getProcessStatus(void)
 
     for(taskNo=0; taskNo < MAX_TASKS; taskNo++)
     {
-        cpuP = processTime[taskNo].taskPercentage;
+        cpuP = processTime[taskNo].taskPercentage;                             // Store Value of CPU %age
 
-        if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))                                    // Don't show task with INVALID Status
+
+        if(tcb[taskNo].pid || !(tcb[taskNo].state == STATE_INVALID))           // Don't show task with INVALID Status
         {
+            // Print Task PID
             if((uint32_t)tcb[taskNo].pid < 10000)
             {
                 putnUart0(0);
-                putnUart0((uint32_t)tcb[taskNo].pid);
+                putnUart0((uint32_t)tcb[taskNo].pid);                          // If less than 10000 then preceded by 0
             }
             else
                 putnUart0((uint32_t)tcb[taskNo].pid);
 
-            putsUart0("   ");
 
+            // Print Thread / Task Name
+            mov_right(3);
             putsUart0(tcb[taskNo].name);
 
-            len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));
+            len_diff = abs(uSTRLEN(tcb[taskNo].name) - uSTRLEN("Task Name"));  // Calculate Column Width
 
 
             // Print CPU task Run Times
             mov_right(len_diff+4);
 
-            cpuNUM = cpuP / 100;
+            cpuNUM = cpuP / 100;    // Get Characteristic Part
 
             if(cpuNUM < 10)
                 putsUart0("0");
 
-            putnUart0(cpuNUM);
+            putnUart0(cpuNUM);      // Print Characteristic Part
             cpuNUM = 0;
 
-            putcUart0('.');
+            putcUart0('.');         // Decimal point representation
 
-            cpuNUM = cpuP % 100;
+            cpuNUM = cpuP % 100;    // Get Mantissa Part
 
-            putnUart0(cpuNUM);
+            putnUart0(cpuNUM);      // Print Mantissa part
 
             if(cpuNUM < 10)
                 putsUart0("0");
@@ -2216,7 +2220,7 @@ void getProcessStatus(void)
 
             if(tcb[taskNo].currentPriority < 8)
             {
-                ltoa((long)tcb[taskNo].currentPriority - 8,int_buf);
+                ltoa(tcb[taskNo].currentPriority - 8,int_buf);
                 putsUart0(int_buf);
             }
             else
@@ -2254,7 +2258,17 @@ void getProcessStatus(void)
 
             mov_right(6);
 
-            putsUart0(stateName);
+            if(uSTRCMP(stateName,"READY") == 0)
+            {
+                putsUart0("\033[32;1m");putsUart0(stateName);putsUart0("\033[0m");
+            }
+            else if(uSTRCMP(stateName,"BLOCKED") == 0)
+            {
+                putsUart0("\033[31;1m");putsUart0(stateName);putsUart0("\033[0m");
+            }
+            else
+                putsUart0(stateName);
+
 
             putsUart0("\r\n");
         }
@@ -2283,29 +2297,29 @@ void getIpcs(void)
     mov_right(4);putsUart0("Waiting"); putsUart0("\r\n"); putsUart0("\033[0m");
 
 
-    for(semNo=0; semNo < semaphoreCount; semNo++)                                                              // Find Max Column Width
-        name_len[semNo] = uSTRLEN(semaphores[semNo].semName);                                                  // Max length of name = Max Column width
+    for(semNo=0; semNo < semaphoreCount; semNo++)                                                             // Find Max Column Width
+        name_len[semNo] = uSTRLEN(semaphores[semNo].semName);                                                 // Max length of name = Max Column width
 
-    col_width = name_len[0];                                                                                   // First Value = first element of Array
+    col_width = name_len[0];                                                                                  // First Value = first element of Array
 
-    for(semNo=0; semNo < semaphoreCount; semNo++)                                                              // Calculate Max Column Width
+    for(semNo=0; semNo < semaphoreCount; semNo++)                                                             // Calculate Max Column Width
     {
-        if(name_len[semNo] > col_width)                                                                        // Highest Number in Array
+        if(name_len[semNo] > col_width)                                                                       // Highest Number in Array
             col_width = name_len[semNo];
     }
 
     // Print Data
     for(semNo=0; semNo < semaphoreCount; semNo++)
     {
-        putsUart0(semaphores[semNo].semName);                                                                  // Print Semaphore Name
+        putsUart0(semaphores[semNo].semName);                                                                 // Print Semaphore Name
         len_diff = 0;
         len_diff = abs(uSTRLEN(semaphores[semNo].semName) - col_width);
 
         mov_right(5 + len_diff);
-        if(semaphores[semNo].count < 10)                                                                       // Print Semaphore Count
+        if(semaphores[semNo].count < 10)                                                                      // Print Semaphore Count
         {
             putnUart0(0);
-            putnUart0(semaphores[semNo].count);                                                                //preceded by 0 if smaller than 10
+            putnUart0(semaphores[semNo].count);                                                               // Preceded by 0 if smaller than 10
         }
         else
         {
