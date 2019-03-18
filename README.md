@@ -3,9 +3,10 @@ RTOS for coursework
 
 ## Branches
 ### Current Branch
-* ver-1.7 (03/14/2019)
+* master (03/18/2019)
  
 ### History
+* master merged with ver-1.7               (03/18/2018)
 * master merged with branch_ver-1.5.5      (03/14/2019)  
 * branch_ver-1.5.5 merged with ver-1.5.5.2 (03/14/2019)
 
@@ -18,6 +19,13 @@ RTOS for coursework
 https://github.com/adimalla/RTOS_6314
 
 ## Change log and versions
+
+#### Date:03/18/2019
+* <b>Version 1.7</b>
+* Documentation and formating changes added
+* CPU task runtime calculations added
+* Shell command or creating thread added as <task name> '&'
+
 #### Date:03/14/2019
 * <b>Version 1.5.5.2</b>
 * 'pi' (priority inheritance) functionality added.
@@ -48,6 +56,10 @@ https://github.com/adimalla/RTOS_6314
 * All threads along with shell/cli added.
 
 ## Bugs
+
+Date:08/17/2019
+* Time constant low, reported during Project defense
+* Flash4Hz solved for now, will have to do more testing.
 
 Date:03/14/2019
 * Flash4Hz crash bug root cause discovered, data overflow / error in write on 'currentPriority' struct member of tcb, which one up above the 'ticks' member.
