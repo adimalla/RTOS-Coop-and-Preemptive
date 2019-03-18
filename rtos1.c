@@ -274,7 +274,7 @@ bool createThread(_fn fn, char name[], int priority);  // Function to Create Tas
 void destroyThread(_fn fn);                            // Function to Destroy Task/Threads.     | retval: void   | param: Pointer To Task |
 void setThreadPriority(_fn fn, uint8_t priority);      // Function to Destroy Task/Threads.     | retval: void   | param: Task Priority   |
 void yield();                                          // Function to Initialize RTOS.          | retval: void   | param: NULL            |
-void sleep(const uint32_t tick);                       // Function to set sleep time Interval   | retval: void   | param: Value of sleep  |
+void sleep(uint32_t tick);                             // Function to set sleep time Interval   | retval: void   | param: Value of sleep  |
 uint32_t ret_R0(void);                                 // Function to get value of 1st Argument | retval: uint32 | param: NULL            |
 uint32_t ret_R1(void);                                 // Function to get value of 2nd Argument | retval: uint32 | param: NULL            |
 uint32_t ret_R2(void);                                 // Function to get value of 3rt Argument | retval: uint32 | param: NULL            |
@@ -408,6 +408,7 @@ struct semaphore *resource;                            // Pointer to resource Se
 #define MAX_SIZE                  40
 #define MAX_ARGS                  20
 
+// Delimiters from ASCII Table
 #define DELIMS                    ( (string[i] >= 33 && string[i] <= 44) || \
                                     (string[i] >= 46 && string[i] <= 47) || \
                                     (string[i] >= 58 && string[i] <= 64) || \
@@ -598,27 +599,27 @@ void rtosStart()
     // Store Thread/Task PIDs in Local Database
     for(i = 0; i<MAX_TASKS; i++)
     {
-        tsk_DB[i] = tcb[i].pid;                                                                  //
+        tsk_DB[i] = tcb[i].pid;                                                        // Store Thread PID to directory
     }
 
     // Store Thread/Task Name in Local Database
     for(i = 0; i<MAX_TASKS; i++)
     {
-        uSTRCPY(tskName_DB[i],tcb[i].name);                                                      //
+        uSTRCPY(tskName_DB[i],tcb[i].name);                                            // Store Thread Task Name to directory
     }
 
     // Add code to initialize the SP with tcb[task_current].sp;
-    SystemStackPt  = getStackPt();                                                               // Store the first value of System/processor SP
+    SystemStackPt  = getStackPt();                                                     // Store the first value of System/processor SP
 
-    taskCurrent = rtosScheduler();                                                               // Run Scheduler
+    taskCurrent = rtosScheduler();                                                     // Run Scheduler
 
-    setStackPt(tcb[taskCurrent].sp);                                                             // Set SP to thread SP
+    setStackPt(tcb[taskCurrent].sp);                                                   // Set SP to thread SP
 
-    fn = (_fn)tcb[taskCurrent].pid;                                                              // Store the PID
+    fn = (_fn)tcb[taskCurrent].pid;                                                    // Store the PID current task scheduled from rtos scheduler to the function pointer
 
-    tcb[taskCurrent].state = STATE_READY;                                                        //
+    tcb[taskCurrent].state = STATE_READY;                                              // Make Task Current state ready, Initially all are in UNRUN State, see createthread()
 
-    (*fn)();                                                                                     //
+    (*fn)();                                                                           // Run First Task Only first Time
 
 
 }
@@ -676,32 +677,34 @@ void setThreadPriority(_fn fn, uint8_t priority)
 {
     uint8_t stp = 0;
 
-    priority = priority + 8;
+    priority = priority + 8;                                      // Bias Priorities by 8, since they range from -8 to 8
 
     for(stp=0; stp<taskCount; stp++)
     {
-        if(tcb[stp].pid == fn)
+        if(tcb[stp].pid == fn)                                    // Check if PID returned from argument is in TCB pid table
         {
-            tcb[stp].currentPriority = priority;
+            tcb[stp].currentPriority = priority;                  // If found then set current priority to argument priority
             break;
         }
     }
 
 }
 
+// Function to create semaphores
 struct semaphore* createSemaphore(char* semName, uint8_t count)
 {
     struct semaphore *pSemaphore = 0;
 
     if (semaphoreCount < MAX_SEMAPHORES)
     {
-        pSemaphore = &semaphores[semaphoreCount++];
+        pSemaphore = &semaphores[semaphoreCount++];              // Give the adddress of the semaphore to the semaphore pointer
 
-        pSemaphore->count = count;
+        pSemaphore->count = count;                               // Set Sempahore count from the argumnets
 
-        uSTRCPY(pSemaphore->semName, semName);
+        uSTRCPY(pSemaphore->semName, semName);                   // Record Semaphore Name
 
     }
+
     return pSemaphore;
 }
 
@@ -740,29 +743,30 @@ void post(struct semaphore *pSemaphore)
 // REQUIRED: in preemptive code, add code to request task switch
 void systickIsr(void)
 {
-    uint32_t taskN;
-    uint8_t tsk;
-    uint8_t firstUpdate = 1;
+    uint8_t tsk = 0;                                                      // Variable for task number loop
+    uint8_t firstUpdate = 1;                                              // Variable for Moving Average Filter first update
 
 
     // Sleep function support
-    for(taskN=0; taskN < MAX_TASKS; taskN++)
+    for(tsk=0; tsk < MAX_TASKS; tsk++)
     {
-        if(tcb[taskN].state == STATE_DELAYED && tcb[taskN].ticks > 0)
+        if(tcb[tsk].state == STATE_DELAYED)                               // Check If state is DELAYED
         {
-            tcb[taskN].ticks--;
 
-               if(tcb[taskN].ticks == 0)
-                    tcb[taskN].state = STATE_READY;
+            if(tcb[tsk].ticks > 0)
+                tcb[tsk].ticks--;                                         // Decrement ticks only if ticks are greater than 0
 
+            //if(tcb[tsk].ticks == 0)                                     // If ticks are equal to zero then make state READY
+            else
+                tcb[tsk].state = STATE_READY;
         }
     }
 
 
-    // CPU Usage run measurement for different threads
-    measureTimeSlice++;
+    // CPU Usage measurement for different threads
+    measureTimeSlice++;                                                   // Increment measurement time slice variable till it reaches 100 (100ms as systick = 1KHz)
 
-    if(measureTimeSlice == 100)
+    if(measureTimeSlice == 100)                                           // Check if timeslice is equal 100
     {
 
 #if 0
@@ -781,21 +785,23 @@ void systickIsr(void)
                 firstUpdate = 0;
             }
             else
-                processTime[tsk].filterTime = processTime[tsk].filterTime * 0.9 + processTime[tsk].runTime * 0.1;
+                processTime[tsk].filterTime = processTime[tsk].filterTime * 0.9 \
+                + processTime[tsk].runTime * 0.1;
 
         }
 
         totalTime = 0;
 
-        // Calculate total time
+        // Calculate Total Time
         for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             totalTime = totalTime + processTime[tsk].filterTime;
-            //processTime[tsk].totalTime1 = processTime[tsk].totalTime1 + processTime[tsk].filterTime;
+            //processTime[tsk].totalTime1 = processTime[tsk].totalTime1 \
+            + processTime[tsk].filterTime;
 
         }
 
-        // Calculate cpu %age
+        // Calculate CPU %age
         for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             processTime[tsk].taskPercentage = (processTime[tsk].filterTime * 10000) / totalTime;
@@ -834,8 +840,11 @@ void pendSvIsr(void)
 
     // Calculate time difference
     if(tcb[taskCurrent].state != STATE_INVALID)                           // Calculate for everyone but Invalid States
+    {
         processTime[taskCurrent].runTime = stopTime - startTime;          // Store Time Difference
-
+        stopTime = 0;
+        startTime = 0;
+    }
 
     // No calculations during blocked state
     if(tcb[taskCurrent].state == STATE_BLOCKED)
@@ -886,7 +895,7 @@ void pendSvIsr(void)
         // Putting values in Thread Stack Better for Debugging
 
         stack[taskCurrent][255] = 0x01000000;                             // XPSR,
-        stack[taskCurrent][254] = (uint32_t)tcb[taskCurrent].pid;         // PC
+        stack[taskCurrent][254] = (uint32_t)tcb[taskCurrent].pid;         // PC, PID of Thread
         stack[taskCurrent][253] = 15;                                     // LR, and debug value
         stack[taskCurrent][252] = 14;                                     // R12, and debug value
         stack[taskCurrent][251] = 13;                                     // R3, and debug value
@@ -1144,7 +1153,7 @@ void svCallIsr(void)
 
 }
 
-
+// Function to set SP to desired pointer value
 void setStackPt(void* func_stack)
 {
 
@@ -1153,6 +1162,7 @@ void setStackPt(void* func_stack)
 
 }
 
+// Get address of current SP
 uint32_t* getStackPt()
 {
 
@@ -1211,13 +1221,13 @@ void initHw()
     //***************************************************** External Modules ******************************************************************//
 
     // External Push Buttons
-    GPIO_PORTA_DEN_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);       //
-    GPIO_PORTA_DIR_R &= ~(1 << 2) | ~(1 << 3) | ~(1 << 4) | ~(1 << 5) | ~(1 << 6);  //
-    GPIO_PORTA_PUR_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);       //
+    GPIO_PORTA_DEN_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);       // Enable Digital for PORTA pins
+    GPIO_PORTA_DIR_R &= ~(1 << 2) | ~(1 << 3) | ~(1 << 4) | ~(1 << 5) | ~(1 << 6);  // Clear Direction Registers, to make them Inputs
+    GPIO_PORTA_PUR_R |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);       // Enable Internal Pull-up for push buttons
 
     // External LEDs
-    GPIO_PORTE_DEN_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                  //
-    GPIO_PORTE_DIR_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                  //
+    GPIO_PORTE_DEN_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                  // Make PORTE Pins Digital
+    GPIO_PORTE_DIR_R |= (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);                  // Set direction register to make them input
 
     //******************************************************* Systick Timer for Measurement ****************************************************//
 
@@ -1225,8 +1235,6 @@ void initHw()
     TIMER1_CTL_R &= ~TIMER_CTL_TAEN;                                                // Disable timer before configuring (safe programming)
     TIMER1_CFG_R = TIMER_CFG_32_BIT_TIMER;                                          // Configure as 32-bit timer (A+B)
     TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD | TIMER_TAMR_TACDIR;                     // Configure for periodic mode and Count Up timer
-    //TIMER1_TAV_R = 0;
-    //TIMER1_CTL_R |= TIMER_CTL_TAEN;
 
 }
 
@@ -1265,7 +1273,7 @@ void waitMicrosecond(uint32_t us)
 // Blocking function that writes a serial character when the UART buffer is not full
 void putcUart0(const char c)
 {
-    while (UART0_FR_R & UART_FR_TXFF);
+    //while (UART0_FR_R & UART_FR_TXFF);
     UART0_DR_R = c;
     yield();
 }
@@ -1364,7 +1372,7 @@ void command_line(void)
     {
         char_input = getcUart0();
 
-        //putcUart0(char_input);                        //enable hardware echo
+        //putcUart0(char_input);                        // Enable hardware echo, Optional
 
         if (char_input == 13)
         {
@@ -1380,14 +1388,14 @@ void command_line(void)
             char next_1 = getcUart0();
             char next_2 = getcUart0();
 
-            if(next_1 == 91 && next_2 == 65)            //up
+            if(next_1 == 91 && next_2 == 65)            // Up, don't process UP key press
             {
                 putsUart0("\033[B");
                 putsUart0("\033[D");
                 char_input = '\0';
                 continue;
             }
-            else if(next_1 == 91 && next_2 == 66)       //down
+            else if(next_1 == 91 && next_2 == 66)       // Down, Don't process Down key press
             {
                 putsUart0("\033[A");
                 char_input = '\0';
@@ -1775,12 +1783,12 @@ void TIVA_shell(void)
         putsUart0("reboot   : System Reboot                                             \r\n"); // Reboots the RTOS
         putsUart0("clear    : Clear Terminal Screen                                     \r\n"); // Clear Terminal Screen
         putsUart0("preempt  : [on/off], Preemption On/Off                               \r\n"); // Turn preemptive Scheduling On or Off
-        putsUart0("pi       : [on/off], Priority Inheritance On/Off                     \r\n"); //
-        putsUart0("pidof    : [\"task name\"], Display PID of Task                      \r\n"); //
-        putsUart0("ipcs     : Inter-Process Communication Status                        \r\n"); //
-        putsUart0("kill     : [PID], Kill Task                                          \r\n"); //
+        putsUart0("pi       : [on/off], Priority Inheritance On/Off                     \r\n"); // Turn on priority Inheritance
+        putsUart0("pidof    : [\"task name\"], Display PID of Task                      \r\n"); // Display PID of Task
+        putsUart0("ipcs     : Inter-Process Communication Status                        \r\n"); // Display IPC status
+        putsUart0("kill     : [PID], Kill Task                                          \r\n"); // Command for killing Task
         putsUart0("statof   : [\"task name\"], Display Status of Task                   \r\n"); // For Debug
-        putsUart0("<Task> & : \"Task Name\" \"&\", to create new task                   \r\n"); //
+        putsUart0("<Task> & : \"Task Name\" \"&\", to create new task                   \r\n"); // Command for creating a Task, should be present in directory
 
 
     }
@@ -2259,9 +2267,9 @@ void getProcessStatus(void)
 // Function to get Inter-Process Communication Status, currently displays only semaphore status
 void getIpcs(void)
 {
-    uint8_t semNo     = 0;
-    uint8_t len_diff  = 0;
-    uint8_t col_width = 0;
+    uint8_t semNo     = 0;                     // Variable used in Semaphore loop
+    uint8_t len_diff  = 0;                     // Column width calculations
+    uint8_t col_width = 0;                     // store value of table column width
     uint8_t taskNo    = 0;
     uint8_t q = 0;
     uint8_t name_len[MAX_SEMAPHORES] = {0};
@@ -2297,7 +2305,7 @@ void getIpcs(void)
         if(semaphores[semNo].count < 10)                                                                       // Print Semaphore Count
         {
             putnUart0(0);
-            putnUart0(semaphores[semNo].count);
+            putnUart0(semaphores[semNo].count);                                                                //preceded by 0 if smaller than 10
         }
         else
         {
@@ -2305,11 +2313,11 @@ void getIpcs(void)
         }
 
         mov_right(11);
-        putnUart0(0);                                                                                           // Print Queue Size
+        putnUart0(0);                                                                                         // Print Queue Size
         putnUart0(semaphores[semNo].queueSize);
 
         mov_right(7);
-        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                                               // Print Tasks that are running
+        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                                             // Print Tasks that are running
         {
             if(&semaphores[semNo] == tcb[taskNo].semaphore)
             {
@@ -2320,7 +2328,7 @@ void getIpcs(void)
                 }
                 else
                 {
-                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
+                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)                            // Calculate Column width, waiting__ taken as
                         putcUart0(' ');
 
                     break;
@@ -2328,23 +2336,27 @@ void getIpcs(void)
             }
         }
 
-        mov_right(1);
-        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                                               // Print Tasks that are waiting
+        mov_right(1);                                                                                         // Move cursor by 1 space
+        for(taskNo=0; taskNo<MAX_TASKS; taskNo++)                                                             // Print Tasks that are waiting
         {
-            if(&semaphores[semNo] == tcb[taskNo].semaphore)
+            if(&semaphores[semNo] == tcb[taskNo].semaphore)                                                   // check which task uses that semaphore
             {
 
-                for(q=0; q<semaphores[semNo].queueSize; q++)
+                for(q=0; q<semaphores[semNo].queueSize; q++)                                                  // Check in process queue
                 {
-                    if(semaphores[semNo].processQueue[q] == (uint32_t)tcb[taskNo].pid)
+                    if(semaphores[semNo].processQueue[q] == (uint32_t)tcb[taskNo].pid)                        // if task is found in queue
                     {
                             putsUart0(" ");
-                            putsUart0(tcb[taskNo].name);
+                            putsUart0(tcb[taskNo].name);                                                      // Print Task
 
                     }
                 }
-//                    for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
-//                        putcUart0(' ');
+
+#if 0
+                // For Extra fields
+                for(len_diff = 0; len_diff < uSTRLEN("Waiting  "); len_diff++)
+                    putcUart0(' ');
+#endif
             }
         }
 
@@ -2363,21 +2375,25 @@ void getTaskStatus(char *threadName)
 
     for(taskNo=0; taskNo<MAX_TASKS; taskNo++)
     {
-        if(uSTRCMP(threadName,tcb[taskNo].name) == 0)
+        if(uSTRCMP(threadName,tcb[taskNo].name) == 0)              // Check of name exists in table
         {
+            // Print Thread Name
             putsUart0("\r\n");
             putsUart0("Task         : ");
             putsUart0(threadName);
             putsUart0("\r\n");
 
+            // Print Sleep ticks
             putsUart0("Sleep Ticks  : ");
             putnUart0(tcb[taskNo].ticks);
             putsUart0("\r\n");
 
+            // Print Skip Count
             putsUart0("Skips        : ");
             putnUart0(tcb[taskNo].currentPriority);
             putsUart0("\r\n");
 
+            // Print Current Skips
             putsUart0("Current Skips: ");
             putnUart0(tcb[taskNo].skips);
             putsUart0("\r\n");
@@ -2388,7 +2404,7 @@ void getTaskStatus(char *threadName)
         }
     }
 
-    if(taskFnd == 0)
+    if(taskFnd == 0)                                              // If not found then print not found
         putsUart0("ERROR:Task Not Found \r\n");
 
 }
