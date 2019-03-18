@@ -4,7 +4,7 @@
 //******************************************************************************//
 // File            : 07_RTOS.c                                                  //
 // Author          : Aditya Mall                                                //
-// Date            : 03/14/2019                                                 //
+// Date            : 03/17/2019                                                 //
 // Copyright       : (c) 2019, Aditya Mall, Mentor: Dr. Jason Losh,             //
 //                   The University of Texas at Arlington.                      //
 // Project         : RTOS Framework EK-TM4C123GXL Evaluation Board.             //
@@ -76,10 +76,14 @@
 
 //*********** Versions ***************//
 //
+// Version 1.7 -(03/17/2019)
+// info:
+//      - Documentation and formating changes added
+//
 // Version 1.7 -(03/16/2019)
 // info:
-//      - cpu task runtime calculations added
-//      - createthread shell command added
+//      - CPU task runtime calculations added
+//      - shell command or creating thread added as <task name> '&'
 //
 // Version 1.5.5.2 -(03/14/2019)
 // info:
@@ -221,7 +225,7 @@ struct _tcb
     int8_t   priority;                                 // -8 = highest to 7 = lowest
     int8_t   currentPriority;                          // Used for priority inheritance
     uint32_t ticks;                                    // Ticks until sleep complete
-    char     name[16];                                 // Name of task used in ps command
+    char     name[16];                                 // Store Name of Thread/Task
     void     *semaphore;                               // Pointer to the semaphore that is blocking the thread
     uint8_t   skips;                                   // Skip count for priority calculations
 
@@ -284,14 +288,14 @@ uint32_t ret_R1(void);                                 // Function to get value 
 uint32_t ret_R2(void);                                 // Function to get value of 3rt Argument | retval: uint32 | param: NULL            |
 uint8_t get_svcValue(void);                            // Function to get value of SVC Inst.    | retval: uint8  | param: NULL            |
 void setStackPt(void* func_stack);                     // Function to set System Stack Pointer  | retval: void   | param: PID To Task     |
-uint32_t* getStackPt();                                // Function to get Stack Pointer         | retval: Address of SP | param: NULL            |
+uint32_t* getStackPt();                                // Function to get Stack Pointer         | retval: Address of SP | param: NULL     |
 
 
 // Synchronization and semaphore functions
 void wait(struct semaphore *pSemaphore);                           // Function to set Wait for a Semaphore  | retval: void                      | param: Pointer to Sem |
 void post(struct semaphore *pSemaphore);                           // Function to set Post for a Semaphore  | retval: void                      | param: Pointer to Sem |
 struct semaphore* createSemaphore(char* semName, uint8_t count);   // Function to Create Semaphores         | retval: structure pointer to sem  | param: Pointer to Sem |
-
+                                                                   // sem: Semaphore
 
 
 
@@ -320,7 +324,7 @@ uint32_t task_pid = 0;                                 // User for storing task 
 // Time Calculation Variables
 uint32_t startTime        = 0;                         // User for storing start time of thread
 uint32_t stopTime         = 0;                         // User for storing stop time of thread
-uint32_t totalTime        = 0;                         // User for storing total time taken by thread in given timeslice (80 ms in SytickISR)
+uint32_t totalTime        = 0;                         // User for storing total time taken by thread in given time-slice (80 ms in SytickISR)
 uint16_t measureTimeSlice = 0;                         // User for storing value of measurement time slice in SystickISR
 uint8_t TimeCalcEn        = 0;                         // Enable Time Calculations
 
@@ -462,18 +466,18 @@ void parse_string(void);                               // Function to parse stri
 int8_t is_command(char* command, uint8_t arg);         // Function to enter valid verbs as commands      | retval: -1(Fail), 1(Success) | param: verb | param: argument count |
 
 //Project Command Functions
-void project_info(void);                               // Prints the info of the project                   | retval: void     | param: void |
-void TIVA_shell(void);                                 // Shell Interpretor / CLI commands function        | retval: void     | param: void |
-void getTaskPid(void);                                 // Function that prints the the task PID            | retval: void     | param: void |
-void getProcessStatus(void);                           // Task manager function, displays process          | retval: void     | param: void |
-void getIpcs(void);                                    // Prints the Inter process comms table             | retval: void     | param: void |
-uint8_t readPbs(void);                                 // Functions for reading the testbench push buttons | retval: PB value | param: void |
-void getTaskStatus(char *threadName);                  // Prints the detailed status of the function       | retval: void     |param: task name |
-int8_t command_search(void);                           // Function to search for the command               | retval: 1 (success), -1(Fail) | param: void |
+void project_info(void);                               // Prints the info of the project                    | retval: void     | param: void |
+void TIVA_shell(void);                                 // Shell Interpreter / CLI commands function         | retval: void     | param: void |
+void getTaskPid(void);                                 // Function that prints the the task PID             | retval: void     | param: void |
+void getProcessStatus(void);                           // Task manager function, displays process           | retval: void     | param: void |
+void getIpcs(void);                                    // Prints the Inter-process comms table              | retval: void     | param: void |
+uint8_t readPbs(void);                                 // Functions for reading the test-bench push buttons | retval: PB value | param: void |
+void getTaskStatus(char *threadName);                  // Prints the detailed status of the function        | retval: void     |param: task name |
+int8_t command_search(void);                           // Function to search for the command                | retval: 1 (success), -1(Fail) | param: void |
 
 //Buffer Reset Control Functions
-void reset_buffer(void);                               // Functions which resets local buffer of command line input | retval: void | param: void |
-void reset_new_string(void);                           // Functions for reading the testbench push buttons          | retval: void | param: void |
+void reset_buffer(void);                               // Functions which resets local buffer of command line input  | retval: void | param: void |
+void reset_new_string(void);                           // Functions for reading the test-bench push buttons          | retval: void | param: void |
 
 
 //Buffer Reset Control Functions
@@ -566,7 +570,7 @@ int rtosScheduler()
         // Priority Scheduling
         if(scheduler.priorityEnable == 1)                                                        // Check if Priority condition is enabled (Default)
         {
-           if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)                  // If yes and tasks are read and in unrun states
+           if(tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN)                  // If yes and tasks are read and in UNRUN states
             {
                 if(tcb[task].skips < tcb[task].currentPriority)                                  // Increment skip counts till the time it doesn't become equal to priority value
                 {
@@ -576,7 +580,7 @@ int rtosScheduler()
                 else if(tcb[task].skips >= tcb[task].currentPriority)                            // If greater than equal to current priority value
                 {
                     tcb[task].skips = 0;                                                         // Clear Skip count
-                    ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);     // Update value of ok to get of the loop
+                    ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);     // Update value of 'ok' to get of the loop
                 }
             }
         }
@@ -584,7 +588,7 @@ int rtosScheduler()
         else                                                                                     // In Else condition it goes round-robin where everyone gets a fair chance
         {
             tcb[task].skips = 0;                                                                 // Clear Skip counts if previously coming from Priority Scheduler
-            ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);             // Update value of ok to get of the loop
+            ok = (tcb[task].state == STATE_READY || tcb[task].state == STATE_UNRUN);             // Update value of 'ok' to get of the loop
         }
 
     }
@@ -612,7 +616,7 @@ void rtosStart()
 
     setStackPt(tcb[taskCurrent].sp);                                  // Set SP to thread SP
 
-    fn = (_fn)tcb[taskCurrent].pid;                                   // Store the PID current task scheduled from rtos scheduler to the function pointer
+    fn = (_fn)tcb[taskCurrent].pid;                                   // Store the PID current task scheduled from RTOS scheduler to the function pointer
 
     tcb[taskCurrent].state = STATE_READY;                             // Make Task Current state ready, Initially all are in UNRUN State, see createthread()
 
@@ -644,7 +648,7 @@ bool createThread(_fn fn, char name[], int priority)
             i = 0;
 
             while (tcb[i].state != STATE_INVALID) {i++;}
-            tcb[i].state = STATE_UNRUN;                         // Set the intital state as Unrun
+            tcb[i].state = STATE_UNRUN;                         // Set the initial state as UNRUN
             tcb[i].pid = fn;                                    // Set the address of the function as PID
             tcb[i].sp = &stack[i][255];                         // Point to the user stack
             tcb[i].priority = priority;                         // Set the priority as received priority as argument
@@ -694,9 +698,9 @@ struct semaphore* createSemaphore(char* semName, uint8_t count)
 
     if (semaphoreCount < MAX_SEMAPHORES)
     {
-        pSemaphore = &semaphores[semaphoreCount++];              // Give the adddress of the semaphore to the semaphore pointer
+        pSemaphore = &semaphores[semaphoreCount++];              // Give the address of the semaphore to the semaphore pointer
 
-        pSemaphore->count = count;                               // Set Sempahore count from the argumnets
+        pSemaphore->count = count;                               // Set Semaphore count from the arguments
 
         uSTRCPY(pSemaphore->semName, semName);                   // Record Semaphore Name
 
@@ -773,7 +777,7 @@ void systickIsr(void)
         processTime[taskCurrent].runTime = stopTime - startTime;
 #endif
 
-        // Filter run time data (Moving Average)
+        // Filter run time data (Moving Average), Implementation from Fall-2018, EE5314 Project (given by Dr.Jason Losh)
         for(tsk=0; tsk<MAX_TASKS; tsk++)
         {
             if(firstUpdate)
@@ -842,7 +846,7 @@ void pendSvIsr(void)
         stopTime = 0;
         startTime = 0;
     }
-#if 0                                                                     // Optional Logic to disable time calculations in blocked state
+#if 1                                                                     // Optional Logic to disable time calculations in blocked state (1:Enable, 0:Disable)
     // No calculations during blocked state
     if(tcb[taskCurrent].state == STATE_BLOCKED)
     {
@@ -1461,7 +1465,7 @@ void clear_screen(void)
     putsUart0("\033[2J\033[H");                                      // ANSI VT100 escape sequence, clear screen and set cursor to home.
 }
 
-// Function for setting the cursor terminal
+// Function for setting the cursor terminal, see ASCII Codes for reference
 void set_cursor(uint32_t Line, uint32_t Cols)
 {
     putcUart0('\033');
@@ -1473,7 +1477,7 @@ void set_cursor(uint32_t Line, uint32_t Cols)
 
 }
 
-// Function for moving Cursor right in terminal
+// Function for moving Cursor right in terminal, see ASCII Codes for reference
 void mov_right(uint16_t val)
 {
     putcUart0('\033');
@@ -1949,9 +1953,14 @@ void TIVA_shell(void)
         // Enable Preemptive Scheduler
         if(uSTRCMP(new_string[1], "on") == 0)
         {
-            scheduler.preemptiveEnable = 1;
-            putsUart0("preemptive scheduler on \r\n");
+            if(scheduler.preemptiveEnable == 1)
+                putsUart0("preemptive scheduler already on \r\n");
 
+            else
+            {
+                scheduler.preemptiveEnable = 1;
+                putsUart0("preemptive scheduler on \r\n");
+            }
         }
         // Enable default Scheduler (Cooperative), disable Preemptive
         else if(uSTRCMP(new_string[1], "off") == 0)
@@ -1983,9 +1992,14 @@ void TIVA_shell(void)
         // Enable Preemptive Scheduler
         if(uSTRCMP(new_string[1], "on") == 0)
         {
-            scheduler.priorityInherit = 1;
-            putsUart0("Priority Inheritance On \r\n");
+            if(scheduler.priorityInherit == 1)
+                putsUart0("Priority Inheritance Already On \r\n");
 
+            else
+            {
+                scheduler.priorityInherit = 1;
+                putsUart0("Priority Inheritance On \r\n");
+            }
         }
         // Enable default Scheduler (Cooperative), disable Preemptive
         else if(uSTRCMP(new_string[1], "off") == 0)
@@ -2089,8 +2103,12 @@ void TIVA_shell(void)
 
         // Still not found
         if(fnd == false)
-            putsUart0("Task Not Found \r\n");
-
+        {
+            putsUart0("ERROR:");
+            putsUart0(new_string[0]);
+            putsUart0("\r\n");
+            putsUart0("Task Not Found, USAGE: <Task Name> \"&\" \r\n");
+        }
 
     }
 
