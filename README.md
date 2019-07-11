@@ -3,3 +3,4 @@
 
 ## Description
 
+Project Assdignment as part of EE6314 Advanaced Embedded Microcontroller Systems Course work at The University of Texas at Arlington.
